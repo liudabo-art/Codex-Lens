@@ -21,6 +21,10 @@ Codex Lens evaluates relay APIs with reproducible tasks. Run a standalone capabi
 
 检测默认关闭，周期和间隔由用户控制。官方登录仅做用量统计。连接、基础评测、参考匹配和真实校准是四种独立的支持状态。
 
+## 桌面下载
+
+[GitHub Releases](https://github.com/liudabo-art/Codex-Lens/releases) · [平台选择与安装](docs/INSTALLATION.md) · [0.1.0 说明](docs/RELEASE_NOTES.md)
+
 ## 快速开始
 
 需要 Python 3.11 或更新版本。以下命令只运行合成示例和离线模拟。

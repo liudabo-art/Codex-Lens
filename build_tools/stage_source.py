@@ -15,7 +15,7 @@ FILES = (
     'Technical-Documentation-Principles-of-Mathematics-Transfer-Station-Inspection.md',
     'README/README.md', 'README/README-Simplified_Chinese.md',
     'docs/DEVELOPMENT_PLAN.md', 'docs/EXTENDING.md', 'docs/METHODS.md',
-    'docs/INSTALLATION.md', 'docs/RELEASING.md', 'docs/VERIFICATION.md',
+    'docs/INSTALLATION.md', 'docs/RELEASING.md', 'docs/RELEASE_NOTES.md', 'docs/VERIFICATION.md',
     '.github/workflows/build-native.yml', '.github/workflows/synthetic.yml',
     'assets/codex-lens.svg', 'assets/codex-lens.png',
     'assets/codex-lens.ico', 'assets/codex-lens.icns', 'assets/workbench-demo.png',

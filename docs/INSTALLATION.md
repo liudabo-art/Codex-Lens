@@ -1,6 +1,6 @@
 # 安装 Codex Lens / Install Codex Lens
 
-当前源码对应 0.1.0 实验性候选。下表是构建目标。实际下载以仓库 Releases 或维护者提供的已验证候选为准。若暂时没有对应平台的资产，可从本仓库构建。运行前核对随包的 SHA-256。
+当前源码对应 0.1.0 实验性候选。下表是构建目标。实际下载见 [GitHub Releases](https://github.com/liudabo-art/Codex-Lens/releases) 的 Assets。若暂时没有对应平台的资产，可从本仓库构建。运行前在同一 Release 下载 `SHA256SUMS.txt` 并核对所选包的 SHA-256。
 
 | 系统 / System | 候选格式 / Package | 使用方式 / How to open |
 | --- | --- | --- |
