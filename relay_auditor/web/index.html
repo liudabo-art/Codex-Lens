@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <link rel="icon" href="data:,">
+  <title>中转模型检测 · Relay Auditor</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">Codex Lens</div>
+    <nav aria-label="主要导航">
+      <a href="#monitor"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>检测</a>
+      <a href="#history"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg>检测历史</a>
+      <a href="#usage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 19V12h3v7m2 0V8h3v11m2 0V5h3v14"/></svg>用量</a>
+      <a href="#settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M8 4v4m8 2v4m-6 2v4"/></svg>设置</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <a class="sidebar-help" href="#method">如何理解结果</a>
+      <a id="addTarget" class="sidebar-add" href="#configuration"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>添加或导入</a>
+    </div>
+  </aside>
+  <main>
+    <section id="monitor" aria-labelledby="monitorTitle">
+      <header class="workspace-heading"><h1 id="monitorTitle">中转模型检测</h1><p id="workerState" class="muted">周期检测默认关闭</p></header>
+      <div id="targetPickerHome" class="target-picker-home"><label id="targetPickerField" class="target-picker" hidden>目标中转<select id="targetPicker"></select></label></div>
+      <div id="targets"><p class="empty">还没有检测目标。添加地址和专用 API Key，或从配置导入。</p></div>
+    </section>
+    <div id="message" class="message" role="status" aria-live="polite"></div>
+    <section class="panel" id="queue"><div class="section-title"><h2>任务队列</h2><button id="cancelCurrent">停止当前任务后续请求</button></div><p id="jobProgress" role="status">尚无任务</p><div id="jobRows"></div><p class="muted">同一时间运行一个任务。取消会保留已产生的用量与证据，无法撤回已经发出的请求。关闭程序后队列不恢复。</p></section>
+    <section class="panel"><h2>供应商比较与历史变化</h2><p class="muted">按匿名目标分别显示最近结果。只有相同模型、参数、任务版本和样本规模才比较历史；不同测试条件不形成排名。下降线索需要独立参考复核。</p><div class="table-wrap"><table><thead><tr><th>目标 / 模型</th><th>任务 / 参数</th><th>本轮正确率（95%区间）</th><th>历史变化</th><th>证据</th></tr></thead><tbody id="comparisonRows"></tbody></table></div><details><summary>支持范围</summary><p class="muted">连接与基础评测不代表型号已经校准。Claude / Gemini 原生协议目前属于软件适配，模型及推理参数仍需实测。</p><div class="table-wrap"><table><thead><tr><th>模型 / 协议</th><th>曾连接成功</th><th>可基础评测</th><th>匹配指纹参考</th><th>完成校准</th></tr></thead><tbody id="supportRows"></tbody></table></div></details></section>
+    <section id="configuration" class="panel">
+      <h2>添加中转</h2><p class="muted" id="settingsStatus">目标、名称和设置保存在本机私人配置；Key 默认只留在内存。可选择 Windows 凭据库。重启后周期检测一律关闭，不会读取官方登录凭据。</p>
+      <form id="targetForm" autocomplete="off">
+        <div class="form-grid">
+          <label>测试名称<input name="display_name" required maxlength="60" autocomplete="off" placeholder="给这组检测起个名字"></label>
+          <label>中转 API 基础地址<input name="base_url" type="url" required autocomplete="off" placeholder="填写 HTTPS API 基础地址"></label>
+          <label>中转专用 API Key<input name="api_key" type="password" required autocomplete="off"></label>
+          <label>检测模型<select name="model" required><option value="">先读取中转模型列表</option></select></label>
+          <label>推理档位<select name="reasoning_effort"><option value="">模型默认</option><option value="none">none · 不推理</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></label>
+          <label>请求协议<select name="wire_api"><option value="responses">OpenAI Responses</option><option value="chat">Chat Completions</option><option value="deepseek">DeepSeek Chat</option><option value="anthropic">Anthropic Messages（实验）</option><option value="gemini">Gemini 原生（实验）</option></select></label>
+        </div>
+        <details><summary>请求参数</summary><div class="form-grid">
+          <label>每请求最大输出 token<input name="max_output_tokens" type="number" min="128" max="16384" value="2048" required></label>
+          <label>Temperature<input name="temperature" type="number" min="0" max="2" step="0.1" placeholder="留空不指定"></label>
+          <label class="checkbox"><input name="stream" type="checkbox">请求流式响应（部分 Codex 中转需要）</label>
+        </div><p class="muted">添加后可在检测卡补充官方参考。参数不支持时会显示原因。</p></details>
+        <label class="checkbox"><input name="save_credentials" type="checkbox">将此目标的专用 Key 存入系统凭据库（可选）</label>
+        <div class="actions"><button id="readModels" type="button">读取中转模型列表</button><button class="primary" type="submit">保存目标，保持检测关闭</button></div><p class="muted">模型来自供应商模型目录或导入配置，并非身份认证。列表查询会发送专用 Key，不发送业务内容；不支持列表时请从供应商配置导入。原生工具调用及视觉评测尚未提供。</p>
+      </form>
+    </section>
+    <section class="panel"><h2>从供应商管理工具读取</h2><p class="muted">支持已验证结构的 CC Switch 数据库与 Codex++ 配置。只读本地文件；供应商名、地址、Key 不进入报告。读取目录不会启用检测，也不代表这些供应商已经产生业务消耗。</p>
+      <form id="catalogForm" autocomplete="off"><div class="form-grid"><label>配置来源<select name="source"><option value="cc_switch">CC Switch</option><option value="codexplusplus">Codex++</option></select></label><label class="browser-only">本机配置文件<input name="path" type="password" required autocomplete="off" placeholder="填写 cc-switch.db 或 settings.json 的本机路径"></label></div><div class="actions"><button class="browser-only" type="submit">读取供应商目录</button><button id="autoCatalog" class="desktop-only primary" type="button" hidden>一键读取供应商配置</button><button id="chooseCatalog" class="desktop-only" type="button" hidden>手动选择配置文件</button></div><p id="catalogStatus" class="muted" role="status" aria-live="polite">自动读取常见位置；自定义位置请手动选择。读取本身不会发起模型检测。</p></form>
+      <div id="catalogRows"></div><p class="muted">官方登录和官方直连 API 不提供中转检测入口；保留官方登录的混合中转配置仍按中转识别。这里只识别配置，实际 token 分组需要逐请求路由证据。</p>
+    </section>
+    <section id="settings" class="panel">
+      <div class="section-title"><h2>每日检测预算</h2><button id="notifications">开启桌面提醒</button></div>
+      <p class="muted">所有目标共享，包含中转、官方对照及失败请求。日期按北京时间。未知消耗保留预留估算。</p>
+      <form id="budgetForm"><label>请求数上限<input name="request_limit" type="number" min="1" max="100000" value="100" required></label><label>token 估算预算<input name="token_limit" type="number" min="1" max="10000000000" value="100000" required></label><button type="submit">更新预算</button></form>
+      <p class="muted">中转上报用量可能不准确，这不是账单上限。深度审计开始前会检查整批预算。</p>
+    </section>
+    <section id="usage" class="panel usage-panel">
+      <h2>检测用量</h2>
+      <div class="metrics">
+        <article><p>中转检测 token</p><strong id="probeTokens">0</strong><small id="probeRequests">0 次请求</small></article>
+        <article><p>官方参考 token</p><strong id="referenceTokens">0</strong><small id="referenceRequests">0 次请求</small></article>
+        <article><p>官方直连检测 token</p><strong id="directTokens">0</strong><small id="directRequests">0 次请求</small></article>
+        <article><p>今日已发请求</p><strong id="requestCount">0 / 100</strong><small id="budgetState">估算 token 预算 100,000</small></article>
+      </div>
+      <div class="usage-observe">
+        <h3>只读用量观察</h3><p class="muted" id="localUsage">尚未选择 Codex 数据目录。用量观察不受模型检测开关影响。</p>
+        <form id="observeForm" autocomplete="off"><label class="browser-only">本地 Codex 数据目录<input name="home" type="password" autocomplete="off" required placeholder="自行填写本机数据目录"></label><button class="browser-only" type="submit">开始只读观察</button><button id="chooseHome" class="desktop-only" type="button" hidden>选择 Codex 目录并只读观察</button></form>
+        <p class="muted">每 15 秒更新。当前配置只能提供活跃渠道线索，不能证明全部历史归属；不会把未知用量算成官方或中转账单。</p>
+      </div>
+    </section>
+    <section id="history" class="panel">
+      <div class="section-title"><h2>最近检测历史</h2><div class="actions"><select id="exportFormat" aria-label="导出格式"><option value="json">JSON 统计</option><option value="html">HTML 可读报告</option></select><button id="export">导出匿名报告</button></div></div>
+      <details><summary>异常与中断时间线</summary><p class="muted">这里记录异常线索、失败和用户取消。</p><ol id="anomalyRows"></ol></details>
+      <div class="table-wrap"><table><thead><tr><th>时间</th><th>渠道 / 模型</th><th>检查类型</th><th>身份或行为</th><th>能力</th><th>运行状态</th><th>本轮报告</th></tr></thead><tbody id="historyRows"><tr><td colspan="7">暂无检测记录</td></tr></tbody></table></div>
+    </section>
+    <section id="method" class="panel"><h2>选择适合的检测</h2><div class="method-grid"><div><h3>基础体检：无需官方 Key</h3><p>质量任务覆盖约束、代码追踪、错误修复、结构输出及虚拟工具参数。长上下文和推理档位可以单独测；结果说明这些题上的表现。</p></div><div><h3>官方对照：比较更有依据</h3><p>增强配对评测默认 40 对题。官方指纹登记与行为审计另外运行。只有匹配条件才作比较；少量样本与格式失败保留无法判断。</p></div><div><h3>长期巡检：由你开启</h3><p>周期检测按该目标的间隔和活跃条件运行，并共用每日检测预算。延迟和推理 token 数可用于排查问题，判断质量差距需要同题对照。</p></div></div></section>
+    <footer>独立运行中的 Token Monitor 子项目 · 统计留在本机 · 主项目尚未接入</footer>
+  </main>
+</div>
+<dialog id="referenceDialog" aria-labelledby="referenceTitle">
+  <form id="referenceForm" autocomplete="off">
+    <h2 id="referenceTitle">官方同型号对照</h2><p id="referenceClaim"></p>
+    <div class="dialog-fields">
+      <label>官方供应商<select name="preset_id" required autofocus></select></label>
+      <label>官方 API Key<input name="api_key" type="password" autocomplete="off" required></label>
+      <label class="checkbox"><input name="save_credentials" type="checkbox">将官方 Key 存入系统凭据库</label>
+    </div>
+    <p class="muted">自动匹配官方同型号。保存时只核对型号信息，点击「开始检测」后才会发题。</p>
+    <p id="referenceFeedback" class="dialog-feedback" role="status"></p>
+    <div class="actions"><button id="cancelReference" type="button">取消</button><button id="saveReference" type="submit" class="primary">保存并匹配</button></div>
+  </form>
+</dialog>
+<dialog id="deleteDialog" aria-labelledby="deleteTitle">
+  <form id="deleteForm">
+    <h2 id="deleteTitle">删除检测目标</h2><p>要删除「<strong id="deleteTargetName"></strong>」吗？</p>
+    <p>将清理本工具中的目标配置和已保存 Key，并取消排队及周期检测。历史报告和已记录用量会保留。</p>
+    <p id="deleteFeedback" class="dialog-feedback" role="status"></p>
+    <div class="actions"><button id="cancelDelete" type="button" autofocus>取消</button><button id="confirmDelete" type="submit" class="danger">确认删除</button></div>
+  </form>
+</dialog>
+<dialog id="auditDialog" aria-labelledby="auditTitle"><form method="dialog" id="auditForm">
+  <h2 id="auditTitle">启动检查</h2>
+  <p id="auditDescription"></p>
+  <label><span id="auditSampleLabel">每类样本数 / 配对数</span><input id="auditSamples" type="number" min="1" max="200" required></label>
+  <details><summary>手动填写价格以估算费用（美元 / 百万 token）</summary><div class="form-grid"><label>中转输入价<input id="inputPrice" type="number" min="0" step="any"></label><label>中转输出价<input id="outputPrice" type="number" min="0" step="any"></label><label>参考输入价<input id="referenceInputPrice" type="number" min="0" step="any"></label><label>参考输出价<input id="referenceOutputPrice" type="number" min="0" step="any"></label></div></details>
+  <p id="auditEstimate" class="notice" role="status"></p>
+  <button id="retryEstimate" type="button" hidden>重新估算</button>
+  <button id="reviewBudgetShortcut" type="button" hidden>查看每日预算设置</button>
+  <p class="muted">仅发送合成题。实际费用以供应商账单为准。所有结论属实验性。</p>
+  <div class="actions"><button id="cancelAudit" value="cancel" formnovalidate>取消</button><button id="confirmAudit" value="start" class="primary">加入检测队列</button></div>
+</form></dialog>
+<dialog id="historyReportDialog" aria-labelledby="historyReportTitle">
+  <form method="dialog" class="history-report-header"><h2 id="historyReportTitle">历史报告</h2><button value="close" autofocus>关闭</button></form>
+  <div id="historyReportContent" class="shared-report"></div>
+</dialog>
+<dialog id="assessmentFailureDialog" aria-labelledby="assessmentFailureTitle">
+  <form method="dialog">
+    <h2 id="assessmentFailureTitle">本轮检测已中止</h2>
+    <div id="assessmentFailureMessages"></div>
+    <button autofocus>知道了</button>
+  </form>
+</dialog>
+</body>
+</html>

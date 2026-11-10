@@ -1,0 +1,17 @@
+# Source desktop runtime. Linux also needs GTK3 and WebKitGTK 4.1 system packages.
+pywebview==6.2.1
+pythonnet==3.2.1; sys_platform == "win32"
+clr_loader==0.3.1; sys_platform == "win32"
+cffi==2.1.1; sys_platform == "win32"
+pycparser==3.12; sys_platform == "win32"
+pyobjc-core==12.0; sys_platform == "darwin"
+pyobjc-framework-Cocoa==12.0; sys_platform == "darwin"
+pyobjc-framework-Quartz==12.0; sys_platform == "darwin"
+pyobjc-framework-WebKit==12.0; sys_platform == "darwin"
+pyobjc-framework-Security==12.0; sys_platform == "darwin"
+pyobjc-framework-UniformTypeIdentifiers==12.0; sys_platform == "darwin"
+PyGObject==3.50.0; sys_platform == "linux"
+pycairo==1.26.1; sys_platform == "linux"
+proxy_tools==0.1.0
+bottle==0.13.4
+typing_extensions==4.16.0

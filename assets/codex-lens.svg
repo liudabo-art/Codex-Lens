@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Codex Lens">
+  <rect x="26" y="26" width="460" height="460" rx="104" fill="#0754cc"/>
+  <path d="M103 180h82m-82 76h55m-55 76h82" fill="none" stroke="#9ee9df" stroke-width="32" stroke-linecap="round"/>
+  <path d="m332 315 66 66" fill="none" stroke="#fff" stroke-width="36" stroke-linecap="round"/>
+  <circle cx="276" cy="240" r="96" fill="#0754cc" stroke="#fff" stroke-width="33"/>
+  <path d="m231 241 29 29 58-60" fill="none" stroke="#9ee9df" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

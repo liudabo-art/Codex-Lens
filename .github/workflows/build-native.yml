@@ -1,0 +1,102 @@
+name: Native release candidates
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-2022, target: windows-x64}
+          - {os: macos-15-intel, target: macos-x64}
+          - {os: macos-15, target: macos-arm64}
+          - {os: ubuntu-24.04, target: linux-x64}
+          - {os: ubuntu-24.04-arm, target: linux-arm64}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Canonicalize the synthetic temporary directory
+        if: runner.os == 'macOS'
+        env:
+          RELAY_TEMP_BASE: ${{ runner.temp }}
+        run: echo "TMPDIR=$(python -c 'import os; from pathlib import Path; print(Path(os.environ["RELAY_TEMP_BASE"]).resolve())')" >> "$GITHUB_ENV"
+      - name: Prepare pinned Windows installer compiler
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.4.exe'
+          $compilerDir = Join-Path $env:RUNNER_TEMP 'RelayAuditorInno'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_4/innosetup-6.7.4.exe' -OutFile $archive
+          $signature = Get-AuthenticodeSignature -LiteralPath $archive
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B\.V\.') {
+            throw 'Inno Setup vendor signature validation failed'
+          }
+          $process = Start-Process -FilePath $archive -ArgumentList @('/PORTABLE=1', '/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$compilerDir`"") -PassThru -Wait -WindowStyle Hidden
+          $compiler = Join-Path $compilerDir 'ISCC.exe'
+          if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $compiler)) {
+            throw 'Inno Setup compiler preparation failed'
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "ISCC=$compiler"
+      - name: Install native GTK build requirements
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgirepository1.0-dev libcairo2-dev gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+      - name: Install Python build requirements
+        run: python -m pip install -r requirements-build.txt
+      - name: Verify GTK and WebKit introspection
+        if: runner.os == 'Linux'
+        run: python -c 'import gi; gi.require_version("Gtk", "3.0"); gi.require_version("WebKit2", "4.1"); from gi.repository import Gtk, WebKit2'
+      - name: Synthetic Python tests
+        run: python -B -m unittest discover -s tests -v
+      - name: Dashboard tests
+        run: node tests/test_dashboard.cjs
+      - name: Package and smoke test native bundle
+        run: python -B build_tools/build.py
+      - name: Windows installer and uninstaller smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem release/*-Setup.exe).FullName
+          $target = Join-Path $env:RUNNER_TEMP 'RelayAuditorInstalled'
+          $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$target`"") -PassThru -Wait -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) { throw 'Installer smoke failed' }
+          python -B build_tools/smoke.py "$target"
+          $smoke = $LASTEXITCODE
+          $process = Start-Process -FilePath "$target/unins000.exe" -ArgumentList '/VERYSILENT', '/NORESTART' -PassThru -Wait -WindowStyle Hidden
+          if ($smoke -ne 0 -or $process.ExitCode -ne 0) { throw 'Installed worker or uninstall smoke failed' }
+      - name: Linux package extraction smoke
+        if: runner.os == 'Linux'
+        run: |
+          target="$(mktemp -d)"
+          dpkg-deb --extract release/*.deb "$target"
+          python -B build_tools/smoke.py "$target/opt/Relay-Auditor"
+      - name: Verify checksums and archive candidate assets
+        shell: bash
+        run: |
+          cd release
+          sums="SHA256SUMS-${{ matrix.target }}.txt"
+          if command -v sha256sum >/dev/null; then
+            sha256sum -c "$sums"
+          else
+            shasum -a 256 -c "$sums"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packages-${{ matrix.target }}
+          path: release/*
+          if-no-files-found: error
