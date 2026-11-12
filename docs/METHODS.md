@@ -12,17 +12,41 @@ Results cover synthetic probe conditions, not all business traffic or a provider
 
 质量任务包括约束最优解、代码追踪、边界条件修复、结构输出、文本中的虚拟工具参数；不是原生工具调用或完整 JSON Schema 验证，不执行生成代码。上下文题测多位置四跳关联，报告真实提示字符长度，不把单题成功外推成完整上下文窗口。推理专项同题比较 low/high，可带独立参考；响应慢、推理 token 多或某题答错都不单独判降配。
 
-Reports show planned, attempted, correct, incorrect and unscorable assessment counts. Correctness and Wilson intervals describe scorable answers. The reliability denominator counts actual attempts, including failed attempts. Assessment v3 recovers a single complete JSON code block while recording the format deviation for that side. A truncated answer remains unscorable. The v3 history indicator uses four comparable complete runs with disjoint question seed intervals and flags a descriptive decline when both recent runs are at least 10 percentage points below both earlier runs. Comparison binds the owned target ID, model, protocol, suite, mode, reference binding and sample count. The UI comparison window uses the latest 200 records.
+Reports show planned, attempted, correct, incorrect and unscorable assessment counts. Correctness and Wilson intervals describe scorable answers. The reliability denominator counts actual attempts, including failed attempts. Assessment `assessment-v4` recovers a unique complete JSON value from supported wrappers or prose while recording the format deviation for that side. A truncated answer remains unscorable. The `assessment-v4` history indicator uses four comparable complete runs with disjoint question seed intervals and flags a descriptive decline when both recent runs are at least 10 percentage points below both earlier runs. Comparison binds the owned target ID, model, protocol, suite, mode, reference binding and sample count. The UI comparison window uses the latest 200 records.
 
-四维输出为能力质量、行为一致性、服务可靠性、长期稳定性。初筛按两侧记录计划、已尝试、答对、答错和无法评分。正确率与区间只覆盖可评分题，可靠性以实际尝试次数为分母。v3 可以从单个完整 JSON 代码块提取答案并单独记录该侧的格式偏差，截断仍无法评分。历史比较绑定目标 ID、模型、协议、任务版本、模式、参考和样本数。v3 使用四轮题目种子区间互不重叠的完整记录，两轮近期成绩都比前两轮低至少 10 个百分点才提示历史下降线索。页面比较窗口为最近 200 条。
+四维输出为能力质量、行为一致性、服务可靠性、长期稳定性。初筛按两侧记录计划、已尝试、答对、答错和无法评分。正确率与区间只覆盖可评分题，可靠性以实际尝试次数为分母。`assessment-v4` 可以从单个完整 JSON 代码块提取答案并单独记录该侧的格式偏差，截断仍无法评分。历史比较绑定目标 ID、模型、协议、任务版本、模式、参考和样本数。`assessment-v4` 使用四轮题目种子区间互不重叠的完整记录，两轮近期成绩都比前两轮低至少 10 个百分点才提示历史下降线索。页面比较窗口为最近 200 条。
 
-Schema v1 history remains `legacy_unverified` and schema v2 remains `experimental`. The 10-question `assessment-v3` screen reports observed same-item gaps. A qualifying complete screen can open a per-side request preview for an explicitly confirmed independent review with 40–200 new pairs. A formal decision needs at least 40 complete pairs, a 10-point loss and a one-sided exact McNemar p-value within the daily allocation 0.01/[j(j+1)]. Descriptive or incomplete assessment runs consume no formal decision index. An incomplete comparison adds a whole-plan gap range by allowing each unknown score to vary between zero and one. This sensitivity range is separate from sampling confidence intervals. The report preserves task seeds and aggregate outcomes.
+Schema v1 history remains `legacy_unverified` and schema v2 remains `experimental`. The 10-question `assessment-v4` screen reports observed same-item gaps. A qualifying complete screen can open a per-side request preview for an explicitly confirmed independent review with 40–200 new pairs. A formal decision needs at least 40 complete pairs, a 10-point loss and a one-sided exact McNemar p-value within the daily allocation 0.01/[j(j+1)]. Descriptive or incomplete assessment runs consume no formal decision index. An incomplete comparison adds a whole-plan gap range by allowing each unknown score to vary between zero and one. This sensitivity range is separate from sampling confidence intervals. The report preserves task seeds and aggregate outcomes.
 
 旧历史保留其验证状态，新结果继续标实验性。10 道题的初筛报告观察到的差距。符合复测条件时，用户可先分别预览两侧请求量，再确认用 40–200 对新题复测。正式判断要求至少 40 个完整配对、下降至少 10 个百分点，且单侧精确 McNemar 的 p 值符合日内分配阈值 0.01/[j(j+1)]。描述性和不完整的一键评估不消耗正式判定序号。不完整对照把每个未知得分按 0 到 1 变化，给出整批计划题的分差范围。抽样置信区间另行展示。报告保留种子和汇总结果。
 
-Manual assessment and review retry connection errors and interrupted streams on the same question and side, with two extra attempts at most. The initial plan reserves the base requests. Retries use additional daily budget and are accounted separately from question scores. The third failure ends the run and retains preceding scores. An explicit authentication, unsupported parameter or output-limit error ends the run immediately. Scheduled assessments and controlled calibration keep their fixed request plans.
+Manual assessment and review retry connection errors and interrupted streams on the same question and side, with two extra attempts at most. The initial plan reserves the base requests. Retries use additional daily budget and are accounted separately from question scores. The third failure ends the run and retains preceding scores. An explicit authentication, unsupported parameter or output-limit error ends the run immediately. Scheduled assessments keep their fixed request plans. The default compatibility calibration path has no retries; explicit suite selection freezes and executes the retry policy for assessment-v4 or exam-v2.
 
-手动检测和复核遇到断流或连接错误时，按相同参数在失败一侧最多重试两次。基础请求预留预算，重试使用额外的当日余额，单独计量。同题连续三次失败后中止本轮，保留之前的成绩。明确的认证失败、参数不支持和输出上限直接提示。周期检测和受控校准仍按固定请求计划执行。
+手动检测和复核遇到断流或连接错误时，按相同参数在失败一侧最多重试两次。基础请求预留预算，重试使用额外的当日余额，单独计量。同题连续三次失败后中止本轮，保留之前的成绩。明确的认证失败、参数不支持和输出上限直接提示。周期检测仍按固定请求计划执行。受控校准的默认兼容路径不重试；显式选择 `assessment-v4` 或 `exam-v2` 时，冻结并执行相应重试策略及上限。
+
+## Capability Exam / 能力考试
+
+当前题集为 `exam-v2`，巡检评分为 `assessment-v4`。考试每个能力与难度组合使用四种结构，每 60 题各出现一次；120／180 题分别重复该配额两次／三次。新增题型包含最短路、依赖调度、寄存器与状态机、去重与插入边界、账目与区间关联、分组与稀疏结构转换。独立参考程序读取公开输入重新求解，检查标准答案及边界样例；题型的实测区分度仍待先导研究。
+
+共享评分器按有界规则提取正文中唯一完整 JSON，并验证答案结构。冲突候选、重复字段、缺失字段、类型错误、非有限数值和过度嵌套保留细分原因。`item_results` 只保存题号、种子、模板、难度、来源、评分状态及请求次数。旧成绩按原版本保存，上次实测的格式失分不会推定追回。
+
+The current suites are `exam-v2` and `assessment-v4`. Each exam skill and tier has four structures, one of each per 60-item block. Independent solvers verify published inputs and deterministic answers. The bounded scorer records unique JSON recovery and structured failure reasons. Per-item evidence contains anonymous grading metadata. Real discriminative power requires a separate pilot and held-out validation.
+
+既有目标可在「检测设置与专项测试」修改输出 token 上限（128–16384）。推理模型可能同时把推理和答案计入此上限；遇到输出上限中止时，可提高额度后重新开考。考试确认页分别显示中转与官方参考的输出上限，并据此重新估算预算。修改参数后，已匹配的具名官方参考需重新匹配，旧的考试确认失效。
+
+Existing targets expose an output token cap of 128–16384 in advanced test settings. Reasoning may share that cap with the answer. After an output-limit interruption, increase the cap before starting a new exam. The confirmation preview displays each side's cap and updates its budget estimate. Changed settings invalidate earlier exam approval and require rematching a named official reference.
+
+`exam-v2` runs a manually confirmed 120- or 180-question exam for GPT/Codex and DeepSeek relays. It samples five skill groups at three difficulty levels, with four task structures in equal proportions per skill and difficulty. Every 60-question block has the same blueprint and a seed-shuffled order. Both sides of an optional official comparison get identical questions with alternating request order.
+
+`exam-v2` 面向 GPT/Codex 和 DeepSeek 中转，手动运行 120 或 180 题。五类能力各含三档难度，每个题型与难度组合等量抽取四种结构。每 60 题使用相同配额并按种子打散。同型号官方对照使用同一批题，每题交替请求顺序。
+
+Each correct answer earns one mark. A complete answer with recoverable JSON is graded by content and records a format deviation. An unparseable complete answer earns zero and records a format loss. A network error, interrupted stream or empty answer can retry the same question on the failed side up to twice. Each side also has a retry limit of one fifth of its paper size. An exam reserves the full base and retry allowance in the daily budget before starting. An incomplete paper publishes progress and usage. All required sides must submit before any final grade or paired verdict is available.
+
+答对一题得一分。完整回复能恢复 JSON 时按内容判分，并记录格式偏差。无法解析的完整回复计零分并单列格式失分。连接错误、断流或空响应仅在失败侧重试原题，每题最多两次，每侧还受全卷题量五分之一的重试额度约束。开考前预留基础和重试预算。未交卷保留进度及用量。所有必考侧交卷后才出总分与对照判定。
+
+An official comparison uses the existing minimum gap of 10 percentage points and the daily exact McNemar threshold on complete pairs. Scores describe the tested tasks, settings and time. Future calibration requires a separately authorized budget, pilot task selection and frozen validation with new papers across dates. Report repeated score variation, completion rate, false-positive and detection intervals, and cost by family and paper size. Frozen study commands support `assessment-v4` and explicit `--suite exam-v2` selection. The exam remains experimental until it is independently calibrated.
+
+官方对照只在配对完整时按现有规则判断，要求至少 10 个百分点差距并通过单侧精确 McNemar 的日内阈值。成绩覆盖本场题型、请求设置和时间。实测需单独授权和预算，先导后冻结方案，用独立新卷跨日期验证，分别公布各家族和卷型的复考波动、完卷率、误报与检出区间及成本。下文冻结研究命令支持 `assessment-v4` 及显式选择的 `exam-v2`，考试独立校准前保留实验性标记。
 
 ## Reference provenance / 参考来源
 

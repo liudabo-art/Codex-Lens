@@ -173,7 +173,7 @@ class AssessmentTests(unittest.TestCase):
         self.assertEqual(result['paired_result']['reference_correct'], 10)
         self.assertEqual(result['paired_result']['target_correct'], 6)
         self.assertEqual(result['identity_state'], 'not_tested')
-        self.assertEqual(result['suite_version'], 'assessment-v3')
+        self.assertEqual(result['suite_version'], 'assessment-v4')
         self.assertIsNone(result.get('audit_index'))
         self.assertEqual(self.store.next_audit()[0], 1)
         reasoning = [row for row in result['assessment_tasks'] if row['task_kind'] == 'constraints_multi']
@@ -211,11 +211,16 @@ class AssessmentTests(unittest.TestCase):
         self.service.client_factory = FormatClient
         alias = self.service.configure('https://relay.invalid/v1', 'synthetic', 'gpt-test')
         result = self.service.run(alias, 'assessment', samples=6, seed=42)
-        self.assertEqual(result['capability_valid'], 2)
-        self.assertEqual(result['capability_correct'], 1)
-        self.assertEqual(result['invalid_responses'], 4)
+        self.assertEqual(result['capability_valid'], 4)
+        self.assertEqual(result['capability_correct'], 3)
+        self.assertEqual(result['invalid_responses'], 2)
         self.assertEqual({row['error_code']: row['sample_count'] for row in result['response_issues']},
-                         {'recovered_format': 2, 'answer_format': 3, 'incomplete_output': 1})
+                         {'recovered_format': 4, 'answer_format': 1, 'incomplete_output': 1})
+        self.assertEqual(len(result['item_results']), 6)
+        self.assertEqual([row['attempts'] for row in result['item_results']], [1] * 6)
+        self.assertEqual(result['item_results'][-1]['grading_issue'], 'ambiguous_answer')
+        self.assertEqual(result['grading_issues'], [
+            {'source_kind': 'relay', 'grading_issue': 'ambiguous_answer', 'sample_count': 1}])
 
     def test_partial_pairs_bound_the_loss_using_each_known_answer(self):
         class PartialClient(FakeClient):
@@ -224,7 +229,7 @@ class AssessmentTests(unittest.TestCase):
                 if (case.seed == 42 and not reference) or (case.seed == 43 and reference):
                     return Completion('unscorable')
                 if case.seed == 44 and not reference:
-                    return Completion('{"answer":{}}')
+                    return Completion(json.dumps({'answer': case.expected | {'option': 'wrong'}}))
                 return super().complete(case)
         self.service.client_factory = PartialClient
         alias = self.service.configure('https://relay.invalid/v1', 'synthetic', 'gpt-test',

@@ -1,6 +1,6 @@
-# Relay Auditor
+# Codex Lens · Relay Model Evaluation
 
-Codex Lens is an experimental relay model evaluation tool maintained in this independent repository. It originated as a Codex Token Usage Monitor module and retains the anonymous v2 contract for later integration. The desktop and CLI share one Python engine. The detector's own `VERSION` defines its release candidates.
+Codex Lens is an experimental relay model evaluation tool maintained in this independent repository. Version **0.2.0** uses `assessment-v4`, `exam-v2` and the anonymous v2 report contract. It originated as a Codex Token Usage Monitor module. The desktop and CLI share one Python engine, and `VERSION` defines the package version. [0.2.0 release notes](../docs/RELEASE_NOTES.md)
 
 Answer three questions: how does this relay perform on my tasks, has it changed against a reference or its own history, and what evidence/cost supports the conclusion? There is no model-authenticity score or public provider leaderboard. **No model has completed real calibration yet.**
 
@@ -16,9 +16,25 @@ See [installation and compatibility](../docs/INSTALLATION.md) for Windows, macOS
 
 The 16 standard text API presets cover OpenAI, Anthropic, Google, DeepSeek, Qwen (Beijing, Singapore, Virginia and Hong Kong), GLM, Kimi and MiniMax (China and international for each), xAI and Mistral. Save and match checks model metadata where the endpoint supports discovery with the key alone. Qwen Beijing and Virginia, GLM and MiniMax use a versioned official catalog and leave key validation pending until the first assessment. Access to model metadata and permission to generate are separate. Saving a reference sends no test questions.
 
-The declared model selects a GPT/Codex, DeepSeek, Claude or Gemini test profile independently of the wire protocol. Assessment v3 adds branching code and boundary repair tasks for GPT/Codex and multi-step constraints for DeepSeek. Other families use their existing tasks. Correctness and format compliance are recorded separately when a complete JSON answer can be recovered. Pairing requires an exact model ID or a verified provider alias, compatible request settings and the corresponding official provider. A provider or region change requires its own key. Existing reference keys remain pinned to their original provider. Dedicated behavior evidence remains experimental. Direct DeepSeek API assessment uses separate usage accounting. Official logins are for usage accounting and periodic checks are opt-in.
+The declared model selects a GPT/Codex, DeepSeek, Claude or Gemini test profile independently of the wire protocol. Assessment `assessment-v4` adds branching code and boundary repair tasks for GPT/Codex and multi-step constraints for DeepSeek. Other families use their existing tasks. Correctness and format compliance are recorded separately when a complete JSON answer can be recovered. Pairing requires an exact model ID or a verified provider alias, compatible request settings and the corresponding official provider. A provider or region change requires its own key. Existing reference keys remain pinned to their original provider. Dedicated behavior evidence remains experimental. Direct DeepSeek API assessment uses separate usage accounting. Official logins are for usage accounting and periodic checks are opt-in.
 
 Nonsecret target names, addresses, models and settings persist in a dedicated **private settings file**. Relay and official keys are memory-only by default. Windows has separate opt-in save options in the target's own Credential Manager entry. macOS and Linux use session keys. After restart, each unsaved key needs to be entered again. Periodic switches and pending jobs stay off. Corrupt settings are preserved. Custom names stay private, and the tool reads original manager files without editing them.
+
+## Capability Exam
+
+Version 0.2.0 includes a manual **Capability Exam** for GPT/Codex and DeepSeek relays. Choose a 120-question standard exam or a 180-question extended exam. Five skills are tested at three difficulty levels. A matching official reference enables the same questions on both sides. Every required side must complete the entire exam to receive final marks. Incomplete runs retain progress and usage. Format losses on complete answers and service failures appear separately.
+
+`exam-v2` and `assessment-v4` share a bounded deterministic scorer. It can recover a unique complete JSON object or array embedded in prose and records format diagnostics; ambiguous or malformed answers are rejected. Each exam skill and difficulty has four task structures, balanced in every 60-question block. Independent solvers verify generated answers. Anonymous `item_results` contain the task/template, difficulty, seed, side, grading status and attempt count, without question text, raw answers, credentials or private target details. Existing history keeps its original suite version and marks; it is not rescored as the new suite.
+
+The confirmation shows the models, reasoning settings, base requests and the retry allowance. Connection failures, interrupted streams and empty answers can retry the original question on the failed side up to twice, with a further per-side allowance of one fifth of the paper size. A single-sided exam reserves up to 144 or 216 requests, and a paired exam up to 288 or 432. Review and explicitly raise the daily limits if needed. Results are experimental and describe the tasks and settings of that exam. [Exam methods](../docs/METHODS.md#capability-exam--能力考试)
+
+Existing targets can edit their output-token limit, and the exam preview displays the limit for each side. The transport accepts complete JSON bodies even when an OpenAI-compatible endpoint labels them as an event stream. Interrupted event streams retain their incomplete status.
+
+## History and offline help
+
+History records have stable local UUIDs. You can delete one record, selected records or the entire history, including records beyond the latest 200. Deletion updates the current card and review links while preserving request accounting, daily budgets, target settings and registered references. Wait for running or queued work to finish before deleting history. Deleting a target is a separate action described above.
+
+The sidebar's **Operation Manual** is available offline with 13 chapters and 12 actual interface screenshots of synthetic scenarios. The packaged manual and [Markdown manual](../docs/USER_MANUAL.md) use the same content source.
 
 ## Source / CLI / SDK
 
@@ -33,13 +49,14 @@ python -I -S -B run.py quality
 python -I -S -B run.py profiles
 python -I -S -B run.py estimate --target relay-1 --mode quality --samples 10
 python -I -S -B run.py quality --target relay-1 --samples 10 --seed 42
+python -I -S -B run.py capability-exam --target relay-1 --samples 120 --comparison relay_only
 python -I -S -B run.py quality-audit --target relay-1 --samples 40 --request-limit 1000 --token-limit 3000000
 python -I -S -B run.py context --target relay-1 --samples 3
 python -I -S -B run.py reasoning --target relay-1 --samples 5
 python -I -S -B run.py history
 ```
 
-`demo` is offline synthetic oracle output, labeled as demonstration, with temporary data removed; it measures no real model. CLI endpoints/keys use hidden prompts, never command arguments; unsafe echo fallback is rejected. Source desktop uses an isolated environment with `requirements-desktop.txt`, then `python -B desktop.py` (omit `-S`). Local Windows builds use pinned `requirements-build.txt` and `python -B build_tools/build.py`; a fresh candidate is smoke-tested before the source launcher switches. No runtime downloads. [Python API and contribution guide](../docs/EXTENDING.md).
+`demo` is offline synthetic oracle output, labeled as demonstration, with temporary data removed; it measures no real model. The `capability-exam` command above previews an existing target's plan; running it requires `--confirm-exam` and sufficient explicitly configured budget. CLI endpoints/keys use hidden prompts, never command arguments; unsafe echo fallback is rejected. `--max-output-tokens` explicitly changes the output cap. Source desktop uses an isolated environment with `requirements-desktop.txt`, then `python -B desktop.py` (omit `-S`). Local Windows builds use pinned `requirements-build.txt` and `python -B build_tools/build.py`; a fresh candidate is smoke-tested before the source launcher switches. No runtime downloads. [Python API and contribution guide](../docs/EXTENDING.md).
 
 ## Tasks, protocols and evidence
 
@@ -71,7 +88,7 @@ Official-login business, direct official API, relay business per anonymous provi
 
 CC Switch reads verified Codex provider schemas via temporary SQLite copies including WAL/SHM. Codex++ reads verified relayProfiles/configContents formats; other forks/versions may be unsupported. Auto-discovery tries fixed documented locations only; custom locations use file selection. No configured hooks, provider switches or login renewals execute. Original supplier names/IDs remain hidden.
 
-Source data lives in ignored `.relay-data/`; desktop data lives under the current user's local application-data `Relay-Auditor` directory, with no automatic old-history migration. Anonymous `audit.sqlite` is separate from private `private/settings.json` and optional exact-owned OS vault items. Settings/backups are private; do not share them. Export goes to the dedicated exports folder, never overwrites originals, and removes names/addresses/keys/raw business content. Aggregate exports are still local private information, not automatically safe to publish.
+The CLI defaults to ignored `.relay-data/` in the repository. Source and packaged desktop apps on the same platform share the current user's application-data `Relay-Auditor` directory; CLI history is not automatically migrated there. Anonymous `audit.sqlite` is separate from private `private/settings.json` and optional exact-owned OS vault items. Settings/backups are private; do not share them. Export goes to the dedicated exports folder, never overwrites originals, and removes names/addresses/keys/raw business content. Aggregate exports are still local private information, not automatically safe to publish.
 
 Dedicated relay keys and synthetic probes go only to the selected HTTPS relay. An official reference key is sent to its selected fixed provider and regional endpoint for model discovery and paired tests. No official-login token reading, inherited proxies, redirects, telemetry, remote viewer assets or private uploads. Random-path loopback Host/Origin checks and desktop WebView restrictions remain. Closing/exit cannot retract issued calls. Parent offline collection and official synchronization are unchanged.
 
@@ -82,6 +99,8 @@ python -B -m unittest discover -s tests -v
 node tests/test_dashboard.cjs
 ```
 
-Default CI uses synthetic fixtures only on Windows/Linux. Real API calibration is a separate explicitly budgeted task, never automatic in tests. Frozen studies include generator/transport checksums, independent pilot/new-day samples, healthy/substitution/reasoning/truncation/mixed controls and exact confidence intervals. Target FP upper bound ≤5% and full-substitution power lower bound ≥80% have **not been measured**. A statistical pass remains a review candidate, not an automatic registry promotion. No copied noncommercial code/data is bundled. [Implementation status and remaining gates](../docs/DEVELOPMENT_PLAN.md).
+CI and local tests use synthetic fixtures. The native package matrix covers Windows x64, macOS x64/arm64 and Linux x64/arm64; inspect the workflow and release assets for the outcome of a particular build. The local Windows portable candidate has build and worker/resource smoke evidence. Full native GUI acceptance remains open. [Verification record](../docs/VERIFICATION.md)
 
-M1 real model results, M2 full native Windows end-to-end acceptance, per-family calibration, manager ledgers and parent integration remain open. Browser/synthetic checks cannot close those gates. No commits, merges, signing or public release occurred as part of this implementation.
+Real API calibration is a separate explicitly budgeted task, never automatic in tests. Frozen studies and offline simulation support `assessment-v4`, `exam-v2`, GPT/Codex and DeepSeek, recording full request/retry plans, pilot template statistics and validation intervals. They are calibration tools, not real calibration results. Target false-positive upper bound ≤5% and full-substitution detection lower bound ≥80% have **not been measured**. A statistical pass remains a review candidate, not an automatic registry promotion. No copied noncommercial code/data is bundled.
+
+M1 real model results, M2 full native Windows end-to-end acceptance, per-family calibration, manager ledgers and parent integration remain open. Browser/synthetic checks do not close those gates. Publication status and dates come from the corresponding GitHub Release. [Implementation status and remaining gates](../docs/DEVELOPMENT_PLAN.md)

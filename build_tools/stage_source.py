@@ -9,13 +9,14 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     '.gitignore', 'AGENTS.md', 'SECURITY.md', 'LICENSE', 'VERSION', 'README.md',
-    'FILE_GUIDE.md', 'WINDOWS.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'desktop.py', 'run.py', 'usage_worker.py',
+    'FILE_GUIDE.md', 'WINDOWS.md', 'CHANGELOG.md', 'WORKLOG.md', 'CONTRIBUTING.md', 'desktop.py', 'run.py', 'usage_worker.py',
     '启动中转检测.cmd', '启动桌面端.cmd',
     'requirements-build.txt', 'requirements-desktop.txt',
     'Technical-Documentation-Principles-of-Mathematics-Transfer-Station-Inspection.md',
     'README/README.md', 'README/README-Simplified_Chinese.md',
     'docs/DEVELOPMENT_PLAN.md', 'docs/EXTENDING.md', 'docs/METHODS.md',
     'docs/INSTALLATION.md', 'docs/RELEASING.md', 'docs/RELEASE_NOTES.md', 'docs/VERIFICATION.md',
+    'docs/USER_MANUAL.md', 'relay_auditor/web/manual/content.json',
     '.github/workflows/build-native.yml', '.github/workflows/synthetic.yml',
     'assets/codex-lens.svg', 'assets/codex-lens.png',
     'assets/codex-lens.ico', 'assets/codex-lens.icns', 'assets/workbench-demo.png',
@@ -23,6 +24,9 @@ FILES = (
     'relay_auditor/vendor/__init__.py', 'relay_auditor/vendor/safety.py',
     'relay_auditor/vendor/sessions.py', 'tests/test_dashboard.cjs',
 )
+MANUAL_IMAGES = ('overview', 'import', 'add-target', 'target-settings', 'official-reference', 'assessment',
+                 'exam-budget', 'exam-report', 'history-delete', 'periodic', 'usage', 'failure')
+FILES += tuple('relay_auditor/web/manual/' + name + '.png' for name in MANUAL_IMAGES)
 GROUPS = {
     'relay_auditor': ('*.py',),
     'tests': ('test_*.py',),

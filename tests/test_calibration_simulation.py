@@ -24,7 +24,7 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(status, 0)
         report = json.loads(raw)
         self.assertEqual(report['evidence'], 'synthetic_simulation')
-        self.assertEqual(report['suite_version'], 'assessment-v3')
+        self.assertEqual(report['suite_version'], 'assessment-v4')
         self.assertEqual(report['real_api_requests'], 0)
         rows = report['paired']
         self.assertEqual({row['pairs'] for row in rows}, {40, 80, 120, 200})

@@ -14,7 +14,7 @@ import time
 import uuid
 
 SAFE_KEYS = set('''schema_version snapshot_type epoch_id generated_at targets history budget usage reasoning_effort
-target_id job_id review_of review_available suite_version evidence_level dimensions quality behavior reliability stability interval latency_mean latency_p95
+target_id job_id record_id history_count review_of review_available review_job_id review_source_deleted suite_version evidence_level dimensions quality behavior reliability stability interval latency_mean latency_p95
 wire_api context_results task_seed task_count comparison_conditions reference_comparison_conditions max_output_tokens temperature stream adapter_version
 recommendation accuracy_change trend comparisons credential_ready vault_available settings_status jobs progress completed total
 estimated_cost currency input_price output_price context_characters reasoning_comparison effort reference_accuracy
@@ -38,7 +38,9 @@ catalog catalog_id catalog_source providers current_selected can_detect
 assessment_plan reference_state assessment_tasks assessment_counts task_kind difficulty attempted valid correct response_issues behavior_samples agreements
 reference_correct target_correct direct_probe_tokens direct_probe_requests
 reference_preset reference_saved reference_error reference_protocol_id
-retry retry_requests max_retry_requests retry_question retry_attempt failure_source
+retry retry_requests max_retry_requests retry_question retry_attempt failure_source failure_question
+exam exam_available exam_progress comparison submitted sides sections format_failures format_recovered
+item_results question_number template seed correct format_state attempts score grading_issue grading_issues
 '''.split())
 SAFE_WORDS = set('''usage assessment relay unknown baseline_missing baseline_stale none minimal low medium high xhigh max
 responses chat anthropic gemini text-v1
@@ -57,22 +59,36 @@ running paused_budget stopped no_data provider_match_unverified unknown_historic
 local_usage_only same_time_official_reference historical_official_reference
 request_evidence_required
 official_login official_api configuration_only cc_switch codexplusplus
-assessment-v1 assessment-v2 assessment-v3 reference_matched reference_mismatch reference_missing official_direct identity_uncalibrated not_tested
+assessment-v1 assessment-v2 assessment-v3 assessment-v4 reference_matched reference_mismatch reference_missing official_direct identity_uncalibrated not_tested
 reference_pending reference_key_required reference_unavailable reference_model_unavailable reference_model_retired
 deepseek gpt claude qwen glm kimi minimax grok mistral llama document digit dice color weekday coin
 output_limit stream_interrupted empty_answer response_filtered incomplete_output answer_format recovered_format
 code_branch repair_edges constraints_multi
+capability_exam exam-v1 exam-v2 relay_only paired exam_changed exam_unsupported
+exam_reasoning exam_code exam_repair exam_information exam_structure
 '''.split())
 STRING_FIELDS = {'model', 'reference_model'}
 
 
 def safe_snapshot(value):
     """Drop unknown fields and free-form strings, including remote error text."""
-    def clean(item, key=''):
+    def clean(item, key='', context=''):
+        if key == 'template':
+            from .grading import SAFE_TEMPLATES
+            return item if isinstance(item, str) and item in SAFE_TEMPLATES else None
+        if key == 'grading_issue':
+            from .grading import GRADING_ISSUES
+            return item if isinstance(item, str) and item in GRADING_ISSUES else None
+        if key == 'correct' and context == 'item_results':
+            return item if type(item) is bool else None
+        if key == 'score' and context == 'item_results':
+            return item if type(item) is int and item in (0, 1) else None
+        if key == 'format_state':
+            return item if isinstance(item, str) and item in ('valid', 'recovered_format', 'answer_format') else None
         if isinstance(item, dict):
-            return {k: clean(v, k) for k, v in item.items() if k in SAFE_KEYS}
+            return {k: clean(v, k, key) for k, v in item.items() if k in SAFE_KEYS}
         if isinstance(item, list):
-            return [clean(v, key) for v in item[:1000]]
+            return [clean(v, key, context) for v in item[:1000]]
         if item is None or type(item) is bool:
             return item
         if type(item) in (int, float):
@@ -90,7 +106,7 @@ def safe_snapshot(value):
                 return item
             if key in ('generated_at', 'evaluated_at', 'completed_at', 'last_usage_at', 'day'):
                 return item if re.fullmatch(r'[0-9T:.+Z-]{10,40}', item) else None
-            if key in ('epoch_id', 'baseline_id', 'catalog_id', 'target_id','job_id','review_of','plan_id'):
+            if key in ('epoch_id', 'baseline_id', 'catalog_id', 'target_id','job_id','record_id','review_of','review_job_id','plan_id'):
                 return item if re.fullmatch(r'[a-f0-9-]{32,36}', item) else None
             if key == 'source_alias':
                 return item if re.fullmatch(r'(?:relay|catalog)-[0-9]+', item) else None
@@ -148,6 +164,28 @@ class Store:
             (id TEXT PRIMARY KEY, day TEXT, requests INTEGER, tokens INTEGER, per_call INTEGER, expires REAL)''')
         self.connection.execute('''CREATE TABLE IF NOT EXISTS baselines
             (id TEXT PRIMARY KEY, model TEXT, protocol TEXT, data TEXT)''')
+        try:
+            self._migrate_history_ids()
+        except Exception:
+            self.connection.close()
+            raise
+
+    def _migrate_history_ids(self):
+        """Assign anonymous identities atomically without rewriting historical reports."""
+        with self.lock:
+            self.connection.execute('BEGIN IMMEDIATE')
+            try:
+                columns = {row[1] for row in self.connection.execute('PRAGMA table_info(results)')}
+                if 'record_id' not in columns:
+                    self.connection.execute('ALTER TABLE results ADD COLUMN record_id TEXT')
+                rows = self.connection.execute('SELECT id FROM results WHERE record_id IS NULL').fetchall()
+                for (identifier,) in rows:
+                    self.connection.execute('UPDATE results SET record_id=? WHERE id=?', (uuid.uuid4().hex, identifier))
+                self.connection.execute('CREATE UNIQUE INDEX IF NOT EXISTS results_record_id ON results(record_id)')
+                self.connection.execute('COMMIT')
+            except Exception:
+                self.connection.execute('ROLLBACK')
+                raise
 
     def close(self):
         with self.lock:
@@ -291,14 +329,64 @@ class Store:
         return index, spending_alpha(index)
 
     def record(self, data):
-        payload = json.dumps(safe_snapshot(data), ensure_ascii=False, allow_nan=False)
+        safe = safe_snapshot(data)
+        safe.pop('record_id', None)
+        safe.pop('review_source_deleted', None)
+        payload = json.dumps(safe, ensure_ascii=False, allow_nan=False)
         with self.lock:
-            return self.connection.execute('INSERT INTO results(data) VALUES (?)', (payload,)).lastrowid
+            record_id = uuid.uuid4().hex
+            self.connection.execute('INSERT INTO results(record_id,data) VALUES (?,?)', (record_id, payload))
+            return record_id
 
     def history(self, limit=50):
         with self.lock:
-            rows = self.connection.execute('SELECT data FROM results ORDER BY id DESC LIMIT ?', (min(limit, 200),)).fetchall()
-        return [safe_snapshot(json.loads(row[0])) for row in rows]
+            rows = self.connection.execute('SELECT record_id,data FROM results ORDER BY id DESC LIMIT ?', (min(limit, 200),)).fetchall()
+        return [safe_snapshot(json.loads(data) | {'record_id': record_id}) for record_id, data in rows]
+
+    def history_count(self):
+        with self.lock:
+            return self.connection.execute('SELECT COUNT(*) FROM results').fetchone()[0]
+
+    def history_job_keys(self):
+        """Review provenance uses all remaining records, beyond the visible history page."""
+        with self.lock:
+            rows = self.connection.execute('SELECT data FROM results').fetchall()
+        return {(value.get('target_id'), value['job_id']) for row in rows
+                if (value := json.loads(row[0])).get('job_id')}
+
+    @staticmethod
+    def history_delete_ids(record_ids=None, *, all=None):
+        if all is True and record_ids is None:
+            return None
+        if all is not None or not isinstance(record_ids, list) or not record_ids:
+            raise ValueError('invalid_history_delete')
+        ids = set()
+        for value in record_ids:
+            if not isinstance(value, str) or not re.fullmatch(r'(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})', value):
+                raise ValueError('invalid_history_delete')
+            ids.add(uuid.UUID(value).hex)
+        return ids
+
+    def delete_history(self, record_ids=None, *, all=None):
+        ids = self.history_delete_ids(record_ids, all=all)
+        with self.lock:
+            self.connection.execute('BEGIN IMMEDIATE')
+            try:
+                if ids is None:
+                    deleted = self.connection.execute('DELETE FROM results').rowcount
+                else:
+                    deleted = 0
+                    ordered = sorted(ids)
+                    for offset in range(0, len(ordered), 400):
+                        chunk = ordered[offset:offset + 400]
+                        placeholders = ','.join('?' for _ in chunk)
+                        deleted += self.connection.execute('DELETE FROM results WHERE record_id IN (' + placeholders + ')', chunk).rowcount
+                remaining = self.connection.execute('SELECT COUNT(*) FROM results').fetchone()[0]
+                self.connection.execute('COMMIT')
+            except Exception:
+                self.connection.execute('ROLLBACK')
+                raise
+        return {'deleted_count': deleted, 'total_remaining': remaining}
 
     def put_baseline(self, model, protocol, features, captured_at, reference_model,*,provenance_level='historical_official_reference'):
         from .protocol import model_name

@@ -56,6 +56,20 @@ SDK默认不保存配置/不访问凭据库。`client_factory`可注入模拟客
 
 `ReferencePack.load(path)` accepts bounded numeric packs only. `pack.install(store, target, reference_model)` rejects mismatched/stale packs and records `user_history`. There is no automatic remote baseline download or trusted promotion. The constructor is for reviewed in-process numeric features, not arbitrary untrusted dictionaries.
 
+## Capability Exam / 能力考试
+
+`capability-exam` is the manual CLI command for `capability_exam`. It accepts `--samples 120` or `--samples 180`. Set an explicit daily budget and pass `--confirm-exam` with `--comparison relay_only` or `--comparison paired` to start. `estimate --mode capability_exam` shows the current estimate without sending test requests.
+
+`--max-output-tokens 8192` sets the output cap for a new target or explicitly updates the selected `--target`; the supported range is 128–16384. Omitting it preserves the selected target's saved cap. Existing desktop targets expose the same setting under advanced test settings. Cap changes invalidate previous exam approval and may require rematching a named official reference. Exam previews include `max_output_tokens` and `reference_max_output_tokens` for the chosen sides. The local `target_options` route and `Service.update_target` accept optional `max_output_tokens`; omission preserves the current cap.
+
+```powershell
+python -I -S -B run.py estimate --target relay-1 --mode capability_exam --samples 120 --comparison relay_only
+```
+
+For the Python or loopback API, call `estimate(alias, 'capability_exam', samples, comparison='relay_only')` or send the same inputs to POST `estimate`. After explicit budget approval, pass the returned `exam_plan_id` to `run` or `submit`, or to POST `run`. A stale preview requires a new estimate. The identifier is scoped to confirmation and is excluded from anonymous reports. `required_requests` counts the base questions across the active sides. `max_requests` and `estimated_tokens` cover the reservation, including the retry allowance.
+
+Python 或本机接口通过 `estimate` 选择卷型和对照方式，确认日预算后将 `exam_plan_id` 传给运行接口。确认凭据不随报告导出。匿名 v2 中的可选 `exam` 包含 `comparison`、`submitted`、`sides` 和 `sections`。卷型使用 `task_count` 区分，`task_seed` 与 `suite_version` 支持复现。仅 `submitted` 为真时展示总分。试卷生成器可在本地调用 `exam_cases(family, samples, seed)`。考试和巡检分别展示历史。
+
 ## Adding a task or provider / 社区贡献
 
 1. Add an original procedural generator and deterministic oracle in `suites.py`, or a separate reviewed module imported there. Use bounded seeds/lengths and exact grading; never eval/exec a response, call external tools or download runtime assets. Include no private conversations or NC-licensed data. Add a new suite version when prompts, oracle, parser or task distribution change.
@@ -76,6 +90,24 @@ Assessment v3 adds optional anonymous fields within snapshot schema v2. The plan
 For manual assessments, `max_retry_requests` is an additional request ceiling. `required_requests` and `estimated_tokens` cover the base run. `retry_requests` records extra attempts in the result and in the relevant side's counts. Interrupted manual runs can carry `failure_source` and `error_code` with retained scores.
 
 主项目将来接入时，可调用 Python 接口或本机随机会话内的 `GET assessment` 和 `GET usage`，分别读取匿名检测和用量快照。先校验 `schema_version` 与 `snapshot_type`。界面专用 `state` 含私人显示名称，应留在模块内部。`target_id` 是模块生成的目标 ID。官方登录、官方 API、各中转供应商和未知来源分开处理，业务、探针和官方参考用量也分别保留。历史账本归属与去重需要逐请求证据。
+
+## History and research APIs / 历史与研究接口
+
+### History identity and deletion / 历史标识与删除
+
+Every stored result receives a stable UUID `record_id`, including atomic migration of old records. `history_count` is the whole database count, while snapshots retain the latest 200 entries. POST `history_delete` accepts exactly one of `{"record_ids":["UUID"]}` or `{"all":true}` and returns `deleted_count` and `total_remaining`. Completed records can be deleted when no detection is running or queued. Requests with malformed IDs fail atomically. Deletion preserves usage, budgets, audit indices, credentials, settings and reference baselines. A retained follow-up view can carry `review_source_deleted`. Existing report scores are preserved.
+
+`item_results` is optional anonymous v2 metadata. Each entry has `question_number`, `task_kind`, `template`, `difficulty`, `seed`, `source_kind`, `correct`, `format_state`, `attempts`, `error_code` and `grading_issue`. Template and diagnostic strings are allowlisted. Raw answers and prompts are excluded. `exam-v2` and `assessment-v4` coexist with original historical versions.
+
+### Exam studies / 考试研究
+
+`calibration-init` and `calibration-simulate` accept `--suite exam-v2|assessment-v4` and `--family gpt|deepseek`. Exam studies accept 120 or 180 samples and freeze model IDs, official preset, settings, source hashes, scoring, retry limits and independent dates/seeds. `calibration-collect` retains explicit request/token authorization and hidden official Key input. Normal tests and simulation use synthetic completions. Changing frozen implementation or conditions requires a new study.
+
+```powershell
+python -I -S -B run.py calibration-simulate --suite exam-v2 --family gpt --samples 120 --trials 10
+```
+
+The offline manual is authored in `relay_auditor/web/manual/content.json`. Run `python -B build_tools/manual_docs.py` after changing content to regenerate `docs/USER_MANUAL.md`. Fixed same-origin PNG routes and the source package list must match the manual manifest.
 
 ## Checks / 检查
 

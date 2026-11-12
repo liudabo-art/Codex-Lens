@@ -21,7 +21,11 @@
     not_comparable:'条件不匹配，无法比较',historical_decline_signal:'历史下降线索（需复核）',
     basic_observation:'基础观察',matched_official_comparison:'同期官方对照',historical_reference:'历史参考',legacy_unverified:'旧版未验证',
     no_reference:'无匹配参考', assessment:'模型检测', identity_uncalibrated:'已取样，待校准',
-    not_tested:'暂无型号对照', official_direct:'官方直连'};
+    not_tested:'暂无型号对照', official_direct:'官方直连', capability_exam:'能力考试',
+    exam_changed:'考试设置已变化，请重新确认', exam_unsupported:'此目标暂不支持能力考试'};
+  const examMode = 'capability_exam';
+  const examPapers = {120:'标准卷（120 题）',180:'加长卷（180 题）'};
+  const sideNames = {reference:'官方参考', official_api:'官方直连', relay:'中转'};
   const wireNames={responses:'OpenAI Responses',chat:'Chat Completions',deepseek:'DeepSeek Chat',anthropic:'Anthropic Messages',gemini:'Gemini'};
   const familyNames={gpt:'GPT / Codex',deepseek:'DeepSeek',claude:'Claude',gemini:'Gemini',qwen:'Qwen',glm:'GLM',kimi:'Kimi',minimax:'MiniMax',grok:'Grok',mistral:'Mistral',llama:'Llama'};
   function formatCount(value) { return value == null || !Number.isFinite(value) ? '未知' : value.toLocaleString('zh-CN'); }
@@ -84,7 +88,8 @@
     if (!result?.review_of) return '';
     const source = history.find(row => row.job_id === result.review_of && row.target_id === result.target_id);
     const scores = pair => `${pair.valid_pairs} 对，中转 ${pair.target_correct}/${pair.valid_pairs}、官方 ${pair.reference_correct}/${pair.valid_pairs}。`;
-    const initial = source?.paired_result?.valid_pairs ? '初筛 ' + scores(source.paired_result) : '';
+    const initial = result.review_source_deleted ? '初筛记录已删除。'
+      : source?.paired_result?.valid_pairs ? '初筛 ' + scores(source.paired_result) : '';
     const review = result.paired_result;
     return initial + (review?.valid_pairs ? '新题复核 ' + scores(review) : '新题复核暂未获得可比较的答题结果。');
   }
@@ -113,20 +118,48 @@
       ? total + `（目标 ${formatCount(plan.target_requests)} 次、官方参考 ${formatCount(plan.reference_requests)} 次）` : total;
     return plan.max_retry_requests > 0 ? bySide + `，断连时最多额外 ${formatCount(plan.max_retry_requests)} 次，计入预算` : bySide;
   }
+  function examEstimateView(plan, current) {
+    const setup = (name, model, effort, outputLimit) => `${name} ${model || '未指定'}（推理 ${effort || '服务默认'}，输出上限 ${formatCount(outputLimit)} token）`;
+    const settings = [setup('中转', plan.model, plan.reasoning_effort, plan.max_output_tokens)];
+    if (plan.reference_requests) settings.push(setup('官方', plan.reference_model, plan.reference_reasoning_effort, plan.reference_max_output_tokens));
+    const cost = `基础 ${formatCount(plan.required_requests)} 次（中转 ${formatCount(plan.target_requests)} 次、官方参考 ${formatCount(plan.reference_requests)} 次），最多重试 ${formatCount(plan.max_retry_requests)} 次，合计最多 ${formatCount(plan.max_requests)} 次。预留估算 ${formatCount(plan.estimated_tokens)} token，费用未知。`;
+    let budget = null, shortfall = '';
+    if (plan.status === 'budget_exhausted' && Number.isSafeInteger(plan.minimum_request_limit) && Number.isSafeInteger(plan.minimum_token_limit)) {
+      const missingRequests = Math.max(0, plan.minimum_request_limit - current.request_limit);
+      const missingTokens = Math.max(0, plan.minimum_token_limit - current.token_limit);
+      budget = {requests:Math.max(current.request_limit, plan.minimum_request_limit), tokens:Math.max(current.token_limit, plan.minimum_token_limit)};
+      shortfall = `当前每日预算还差 ${formatCount(missingRequests)} 次请求、${formatCount(missingTokens)} token。以下建议值包含今日已用和已预留额度。`;
+    }
+    const planId = plan.status === 'ok' && typeof plan.exam_plan_id === 'string' && plan.exam_plan_id ? plan.exam_plan_id : null;
+    return {settings:settings.join(' · '), cost, budget, shortfall, planId};
+  }
+  const label = value => names[value] || identityNames[value] || '状态未知';
+  function runLabel(result) {
+    if (result.review_of) return '新题复核';
+    const paper = result.mode === examMode && examPapers[result.task_count ?? result.sample_count];
+    return paper ? '能力考试 · ' + paper : label(result.mode);
+  }
+  function historyMatches(result, filter) {
+    if (filter === 'all') return true;
+    if (filter === 'routine') return result.mode !== examMode;
+    return result.mode === examMode && 'exam' + (result.task_count ?? result.sample_count) === filter;
+  }
   function assessmentProgress(progress) {
+    const sides = (progress?.exam_progress || []).map(side => `${sideNames[side.source_kind] || '目标'} ${side.completed}/${side.sample_count} 题`);
     const retry = progress?.retry;
     if (retry) {
-      const side = {reference:'官方参考', official_api:'官方直连', relay:'中转'}[retry.source_kind] || '目标';
-      return `${side}正在重试第 ${retry.retry_question} 题（第 ${retry.retry_attempt} 次重试）`;
+      const side = sideNames[retry.source_kind] || '目标';
+      return [...sides, `${side}正在重试第 ${retry.retry_question} 题（第 ${retry.retry_attempt} 次重试）`].join(' · ');
     }
+    if (sides.length) return [...sides, `已发 ${progress.completed || 0} 次请求`].join(' · ');
     return `已尝试 ${progress?.completed || 0}/${progress?.total || 0} 次请求`;
   }
-  function newAssessmentFailures(previous, data) {
-    if (!previous) return [];
+  function newAssessmentFailures(previous, data, afterDeletion=false) {
+    if (!previous || afterDeletion) return [];
     const seen = new Set((previous.history || []).map(row => row.job_id));
     return (data.history || []).flatMap((row, index) => {
       const brief = data.history_reports?.[index];
-      return brief && row.mode === 'assessment' && row.failure_source && row.job_id && !seen.has(row.job_id)
+      return brief && (row.mode === examMode || row.mode === 'assessment' && row.failure_source) && row.job_id && !seen.has(row.job_id)
         && ['unavailable','budget_exhausted'].includes(row.status) ? [brief] : [];
     });
   }
@@ -134,7 +167,34 @@
     const {display_names, model_choices, catalog_models, catalog_reasoning, desktop, vault_available, settings_status, report_cards, history_reports, official_presets, ...snapshot} = data;
     return snapshot;
   }
-  const exported = {formatCount, identityLabel, intervalSeconds, estimateRequests, exportSnapshot, qualityText, referenceSummary, targetLabel, pairedReviewSummary, selectedTarget, reportView, historyEntry, requestSummary, assessmentProgress, newAssessmentFailures};
+  function historySelection(data, selected, filter) {
+    const visible = new Set(data.history.filter(row => historyMatches(row, filter)).map(row => row.record_id));
+    return [...selected].filter(id => id && visible.has(id));
+  }
+  function pruneDeletedHistory(data, scope, remaining) {
+    const removed = new Set(scope.all ? data.history.map(row => row.record_id) : scope.record_ids);
+    const removedJobs = new Set(data.history.filter(row => removed.has(row.record_id)).map(row => row.job_id).filter(Boolean));
+    const cards = {...data.report_cards};
+    const sourceNote = brief => ({...brief,coverage:[...(brief?.coverage || []),'这次复核的初筛记录已删除，复核结果独立保留。']});
+    const targets = data.targets.map(target => {
+      if (scope.all || removed.has(target.last_result?.record_id)) {
+        delete cards[target.source_alias];
+        return {...target,last_result:null,review_available:false,review_job_id:null};
+      }
+      let updated = removedJobs.has(target.review_job_id) ? {...target,review_available:false,review_job_id:null} : target;
+      if (removedJobs.has(target.last_result?.review_of)) {
+        updated = {...updated,last_result:{...target.last_result,review_source_deleted:true}};
+        if (cards[target.source_alias]) cards[target.source_alias] = sourceNote(cards[target.source_alias]);
+      }
+      return updated;
+    });
+    return {...data,targets,report_cards:cards,history_count:remaining,
+      history:data.history.filter(row => !removed.has(row.record_id)).map(row => removedJobs.has(row.review_of) ? {...row,review_source_deleted:true} : row),
+      history_reports:data.history_reports.flatMap((brief, index) => removed.has(data.history[index].record_id) ? []
+        : [removedJobs.has(data.history[index].review_of) ? sourceNote(brief) : brief])};
+  }
+  const exported = {formatCount, identityLabel, intervalSeconds, estimateRequests, exportSnapshot, qualityText, referenceSummary, targetLabel, pairedReviewSummary, selectedTarget, reportView, historyEntry, requestSummary, assessmentProgress, newAssessmentFailures, examEstimateView, runLabel, historyMatches, historySelection};
+  exported.pruneDeletedHistory = pruneDeletedHistory;
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   if (typeof document === 'undefined') return;
   const $ = id => document.getElementById(id);
@@ -188,9 +248,8 @@
     renderReport($('historyReportContent'), entry.report);
     $('historyReportDialog').showModal();
   }
-  const label = value => names[value] || identityNames[value] || '状态未知';
-  const runLabel = result => result.review_of ? '新题复核' : label(result.mode);
   let state = null, pollRequest = null, pollTimer = null, noticeId = null, audit = null, catalogSignature = '', desktopNotifications = false;
+  let selectedHistory = new Set(), historyDeleteScope = null, historyDeleting = false, deletionRefreshPending = false;
   let referenceTargetId = null, deleteTargetId = null, selectedTargetId = null;
   const targetPicker = $('targetPicker'), targetPickerField = $('targetPickerField');
   function message(text, error) { $('message').textContent = text; $('message').classList.toggle('error', Boolean(error)); }
@@ -213,7 +272,11 @@
     reference_provider_mismatch:referenceErrors.reference_provider_mismatch,
     official_direct:'当前目标为官方直连，可以直接测试能力。',
     budget_exhausted:'本轮预估超过剩余预算。请调整下方每日预算或减少样本。',
-    assessment_changed:'检测设置已变化，请查看更新后的请求量再开始。'};
+    assessment_changed:'检测设置已变化，请查看更新后的请求量再开始。',
+    exam_changed:'考试条件或预算已变化，请重新估算并确认。',
+    exam_unsupported:'能力考试仅支持 GPT / Codex 和 DeepSeek 中转。',
+    invalid_samples:'请选择 120 题标准卷或 180 题加长卷。',
+    batch_budget_is_reserved:'其他任务已预留预算。请提高额度或等待任务结束。'};
   async function action(route, data, success) {
     try { const result = await post(route, data); message(result.cancelled ? '已取消选择，配置保持不变。' : success || '已更新'); await poll(); return result; }
     catch (error) { message(errors[error.message] || '操作未完成。请检查输入、目标状态及是否已有检测正在运行。', true); return null; }
@@ -287,7 +350,8 @@
         <div class="start-row">
           <div class="model-field"></div>
           <div class="match-field"><span class="toolbar-label">官方匹配</span><span class="match-hint"></span></div>
-          <p class="plan-hint muted" role="status"></p><button class="primary start-assessment">开始检测</button>
+          <p class="plan-hint muted" role="status"></p>
+          <div class="start-actions"><button class="primary start-assessment">开始检测</button><button type="button" class="start-exam" hidden>能力考试</button></div>
         </div>
         <div class="target-top">
           <div class="target-context"><div class="target-name"></div><div class="target-model"></div></div>
@@ -315,6 +379,12 @@
     const modelLabel = document.createElement('label'); modelLabel.textContent = '检测模型';
     const modelSelect = document.createElement('select'); modelSelect.className = 'modelChoice'; setModels(modelSelect,state.model_choices[target.source_alias] || [],target.model); modelLabel.append(modelSelect);
     const effortLabel = document.createElement('label'); effortLabel.textContent = '推理档位'; const effort = reasoningSelect(target.reasoning_effort); effort.className = 'effort'; effortLabel.append(effort);
+    const outputLabel = document.createElement('label'); outputLabel.textContent = '输出 token 上限';
+    const outputLimit = document.createElement('input'); outputLimit.className = 'outputLimit'; outputLimit.type = 'number';
+    outputLimit.min = '128'; outputLimit.max = '16384'; outputLimit.step = '1'; outputLimit.required = true;
+    outputLimit.value = target.max_output_tokens ?? 2048; outputLabel.append(outputLimit);
+    const outputHint = document.createElement('small'); outputHint.className = 'muted';
+    outputHint.textContent = '推理也可能占用输出额度。调整后需重新匹配官方参考，并重新确认考试预算。'; outputLabel.append(outputHint);
     const wireLabel = document.createElement('label'); wireLabel.textContent = '请求协议';
     const wire = document.createElement('select'); wire.className = 'wireChoice';
     Object.entries(wireNames).forEach(([value, title]) => wire.add(new Option(title, value)));
@@ -327,11 +397,12 @@
     }));
     const save = document.createElement('button'); save.textContent = '保存名称与模型参数';
     save.addEventListener('click', () => busy(save, async () => {
+      if (!outputLimit.reportValidity()) return;
       const result = await action('target_options',options(),'已保存检测设置。');
       if (result) { card.querySelector('.target-name').textContent = nameInput.value; card.querySelector('.target-model').textContent = modelSelect.value; delete card.dataset.dirty; }
     }));
-    function options() { return {source_alias:target.source_alias,display_name:nameInput.value,model:modelSelect.value,reasoning_effort:effort.value,wire_api:wire.value}; }
-    buttons.append(refresh,save); settings.append(nameLabel,effortLabel,wireLabel,buttons);
+    function options() { return {source_alias:target.source_alias,display_name:nameInput.value,model:modelSelect.value,reasoning_effort:effort.value,wire_api:wire.value,max_output_tokens:Number(outputLimit.value)}; }
+    buttons.append(refresh,save); settings.append(nameLabel,effortLabel,outputLabel,wireLabel,buttons);
     card.querySelector('.settings-fields').append(settings);
     card.querySelector('.model-field').append(modelLabel);
     const credentialDetails = card.querySelector('.credentialSettings');
@@ -349,6 +420,7 @@
     }
     const referenceButton = card.querySelector('.open-reference');
     referenceButton.addEventListener('click', () => busy(referenceButton, async () => {
+      if (!outputLimit.reportValidity()) return;
       if (card.dataset.dirty) {
         if (!await action('target_options', options(), '已应用当前模型、名称与推理档位。')) return;
         delete card.dataset.dirty;
@@ -366,6 +438,7 @@
     }));
     const start = card.querySelector('.start-assessment');
     start.addEventListener('click', () => busy(start, async () => {
+      if (!outputLimit.reportValidity()) return;
       const feedback = card.querySelector('.start-feedback');
       feedback.hidden = false;
       feedback.textContent = '正在检查设置和预算…';
@@ -406,6 +479,39 @@
         feedback.textContent = errors[error.message] || '暂时无法提交检测，请检查本机服务后重试。';
       }
     }));
+    const examButton = card.querySelector('.start-exam');
+    examButton.addEventListener('click', () => busy(examButton, async () => {
+      if (!outputLimit.reportValidity()) return;
+      const feedback = card.querySelector('.start-feedback');
+      feedback.hidden = false;
+      try {
+        const current = state.targets.find(item => item.target_id === target.target_id);
+        if (!current?.exam_available) throw new Error('exam_unsupported');
+        if (!current.credential_ready) {
+          if (!savingKey && !credentialForm.elements.api_key.value.trim()) {
+            credentialDetails.open = true;
+            credentialForm.elements.api_key.focus();
+            feedback.textContent = '请填写目标 API Key，再点「能力考试」。';
+            return;
+          }
+          feedback.textContent = '正在解锁目标…';
+          await saveTargetKey();
+        }
+        if (card.dataset.dirty) {
+          await post('target_options', options());
+          delete card.dataset.dirty;
+        }
+        await refreshState();
+        const updated = state.targets.find(item => item.target_id === target.target_id);
+        if (!updated?.exam_available) throw new Error('exam_unsupported');
+        if (!updated.credential_ready) throw new Error('credential_required');
+        if (activeJob(updated) || runningTarget(updated)) throw new Error('busy');
+        feedback.hidden = true;
+        openExam(updated);
+      } catch (error) {
+        feedback.textContent = errors[error.message] || '暂时无法打开考试，请检查本机服务后重试。';
+      }
+    }));
     credentialForm.addEventListener('submit', event => {
       event.preventDefault();
       busy(credentialForm.querySelector('button[type=submit]'), async () => {
@@ -421,7 +527,7 @@
       });
     });
     card.querySelector('.interval').value = target.interval_seconds / 60;
-    [nameInput,modelSelect,effort,wire].forEach(input => input.addEventListener('input', () => { card.dataset.dirty = '1'; }));
+    [nameInput,modelSelect,effort,wire,outputLimit].forEach(input => input.addEventListener('input', () => { card.dataset.dirty = '1'; }));
     card.querySelector('.enabled').addEventListener('change', async event => {
       const result = await action('control', {source_alias:target.source_alias, enabled:event.target.checked}, event.target.checked ? '周期检测已开启，后续按间隔和活跃条件运行。' : '已停止后续检测请求，用量观察继续。');
       if (!result) event.target.checked = !event.target.checked;
@@ -439,9 +545,11 @@
       if (!current?.review_available || card.dataset.dirty || activeJob(target) || runningTarget(target)) {
         return message('检测设置或结果已变化，请确认当前设置后再检测。', true);
       }
-      openAudit(target.source_alias, 'assessment', current.last_result.job_id);
+      const reviewId = current.review_job_id || current.last_result?.job_id;
+      if (reviewId) openAudit(target.source_alias, 'assessment', reviewId);
     });
     card.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', async () => {
+      if (!outputLimit.reportValidity()) return;
       if (card.dataset.dirty) {
         const saved = await action('target_options',options(),'已应用当前模型、名称与推理档位。');
         if (!saved) return;
@@ -452,8 +560,9 @@
     }));
     return card;
   }
-  function render(data) {
-    const failures = newAssessmentFailures(state, data);
+  function render(data, authoritative=true) {
+    const failures = newAssessmentFailures(state, data, historyDeleting || deletionRefreshPending);
+    if (authoritative) deletionRefreshPending = false;
     state = data;
     const u = data.usage, b = data.budget;
     $('probeTokens').textContent = formatCount(u.probe_tokens);
@@ -515,19 +624,29 @@
         start.disabled = Boolean(job || running);
         start.textContent = job || running ? label(job?.state || 'running') : '开始检测';
       }
+      const examButton = card.querySelector('.start-exam');
+      examButton.hidden = !target.exam_available;
+      if (!examButton.dataset.pending) examButton.disabled = Boolean(job || running);
       const cancel = card.querySelector('.cancel-target');
       cancel.hidden = !job && !running;
       if (!cancel.dataset.pending) cancel.disabled = job?.state === 'cancelling';
       const feedback = card.querySelector('.start-feedback');
       if (job || running) {
         feedback.dataset.running = '1';
+        if (job) feedback.dataset.jobId = job.job_id;
         feedback.hidden = false;
         feedback.textContent = running
           ? label(job?.state || 'running') + ' · ' + assessmentProgress(data.progress)
           : label(job.state) + ' · 可以取消';
-      } else if (r && (feedback.dataset.running || feedback.textContent.startsWith('已提交'))) {
+      } else if (feedback.dataset.running || feedback.textContent.startsWith('已提交')) {
+        const finishedJob = (data.jobs || []).find(item => item.job_id === feedback.dataset.jobId);
         delete feedback.dataset.running;
-        feedback.textContent = r.failure_source ? brief?.headline || '本轮检测已中止。' : '本轮检测已结束，请查看下方结果。';
+        delete feedback.dataset.jobId;
+        if (finishedJob?.mode === examMode && finishedJob.job_id !== r?.job_id) {
+          feedback.textContent = `能力考试 · ${label(finishedJob.state)}`;
+        } else {
+          feedback.textContent = r?.mode === examMode || r?.failure_source ? brief?.headline || '本轮检测已中止。' : '本轮检测已结束，请查看下方结果。';
+        }
       }
       card.querySelectorAll('[data-mode]').forEach(button => {
         button.disabled = !target.credential_ready;
@@ -612,33 +731,7 @@
     }
     if (u.local_status === 'ok') $('localUsage').textContent = `观察到本地 ${formatCount(u.observed_local_tokens)} token、${formatCount(u.observed_local_responses)} 条逐响应记录。历史渠道归属未知，未并入中转账单。`;
     else if (u.local_status === 'unavailable') $('localUsage').textContent = '本地用量暂不可读，请检查所选目录。';
-    const rows = $('historyRows'); rows.replaceChildren();
-    $('anomalyRows').replaceChildren();
-    if (!data.history.length) { const row = document.createElement('tr'); cell(row, '暂无检测记录'); rows.append(row); }
-    data.history.forEach((result, index) => {
-      const row = document.createElement('tr');
-      cell(row, new Date(result.evaluated_at).toLocaleString()); cell(row, targetLabel(data, result) + ' / ' + result.model);
-      cell(row, runLabel(result)); cell(row, identityLabel(result.identity_state));
-      cell(row, result.capability_state ? label(result.capability_state) : '—'); cell(row, label(result.status)); rows.append(row);
-      const entry = historyEntry(data, index);
-      if (entry) {
-        const td = document.createElement('td');
-        const open = document.createElement('button'); open.type = 'button'; open.textContent = '查看报告';
-        open.addEventListener('click', () => openHistoryReport(entry)); td.append(open); row.append(td);
-      } else cell(row, '详情暂不可用');
-      if(result.detected_anomaly || result.status!=='ok' || result.network_failures || result.invalid_responses ||
-        result.dimensions && result.dimensions.stability.status==='historical_decline_signal') {
-        const item=document.createElement('li');
-        const brief = entry?.report;
-        const reason = brief?.diagnostics?.join('；') || brief?.headline || label(result.status);
-        item.textContent=`${new Date(result.evaluated_at).toLocaleString()} · ${targetLabel(data, result)} · ${runLabel(result)} · ${reason}`;
-        if (entry) {
-          const open = document.createElement('button'); open.type = 'button'; open.textContent = '查看报告';
-          open.addEventListener('click', () => openHistoryReport(entry)); item.append(open);
-        }
-        $('anomalyRows').append(item);
-      }
-    });
+    renderHistory(data);
     document.querySelectorAll('.desktop-only').forEach(node => { node.hidden = !data.desktop; });
     document.querySelectorAll('.browser-only').forEach(node => { node.hidden = !!data.desktop; });
     if (data.desktop) $('notifications').textContent = desktopNotifications ? '关闭窗口提醒' : '开启窗口提醒';
@@ -654,11 +747,142 @@
       if (!dialog.open) messages.replaceChildren();
       failures.forEach(brief => {
         const line = document.createElement('p');
-        line.textContent = [brief.headline, brief.next_step].filter(Boolean).join('。');
+        line.textContent = [brief.headline, ...(brief.diagnostics || []), brief.next_step].filter(Boolean).join('。');
         messages.append(line);
       });
       if (!dialog.open) dialog.showModal();
     }
+  }
+  function renderHistory(data) {
+    const rows = $('historyRows'); rows.replaceChildren();
+    $('anomalyRows').replaceChildren();
+    const filter = $('historyFilter').value;
+    selectedHistory = new Set(historySelection(data, selectedHistory, filter));
+    const visibleIds = data.history.filter(row => historyMatches(row, filter) && row.record_id).map(row => row.record_id);
+    const historyBusy = data.busy || (data.jobs || []).some(job => job.state === 'queued');
+    $('historyCount').textContent = `共 ${formatCount(data.history_count ?? data.history.length)} 条历史，当前列表 ${visibleIds.length} 条`;
+    $('deleteSelectedHistory').disabled = historyBusy || !selectedHistory.size;
+    $('deleteSelectedHistory').textContent = `删除所选（${selectedHistory.size}）`;
+    $('clearHistory').disabled = historyBusy || !(data.history_count ?? data.history.length);
+    $('selectAllHistory').checked = visibleIds.length > 0 && selectedHistory.size === visibleIds.length;
+    $('selectAllHistory').indeterminate = selectedHistory.size > 0 && selectedHistory.size < visibleIds.length;
+    data.history.forEach((result, index) => {
+      const entry = historyEntry(data, index);
+      if (historyMatches(result, filter)) {
+        const row = document.createElement('tr');
+        const pickCell = document.createElement('td');
+        const pick = document.createElement('input'); pick.type = 'checkbox';
+        pick.setAttribute('aria-label', '选择本条检测记录'); pick.disabled = !result.record_id || historyBusy;
+        pick.checked = selectedHistory.has(result.record_id);
+        pick.addEventListener('change', () => {
+          if (pick.checked) selectedHistory.add(result.record_id); else selectedHistory.delete(result.record_id);
+          renderHistory(state);
+        });
+        pickCell.append(pick); row.append(pickCell);
+        cell(row, new Date(result.evaluated_at).toLocaleString()); cell(row, targetLabel(data, result) + ' / ' + result.model);
+        cell(row, runLabel(result)); cell(row, identityLabel(result.identity_state));
+        cell(row, result.mode === examMode ? entry?.report?.headline || '—' : result.capability_state ? label(result.capability_state) : '—');
+        cell(row, label(result.status)); rows.append(row);
+        if (entry) {
+          const td = document.createElement('td');
+          const open = document.createElement('button'); open.type = 'button'; open.textContent = '查看报告';
+          open.addEventListener('click', () => openHistoryReport(entry)); td.append(open);
+          const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '删除';
+          remove.disabled = historyBusy || !result.record_id;
+          remove.addEventListener('click', () => openHistoryDelete({record_ids:[result.record_id]}));
+          td.append(remove); row.append(td);
+        } else cell(row, '详情暂不可用');
+      }
+      if(result.detected_anomaly || result.status!=='ok' || result.network_failures || result.invalid_responses ||
+        result.dimensions && result.dimensions.stability.status==='historical_decline_signal') {
+        const item=document.createElement('li');
+        const brief = entry?.report;
+        const reason = brief?.diagnostics?.join('；') || brief?.headline || label(result.status);
+        item.textContent=`${new Date(result.evaluated_at).toLocaleString()} · ${targetLabel(data, result)} · ${runLabel(result)} · ${reason}`;
+        if (entry) {
+          const open = document.createElement('button'); open.type = 'button'; open.textContent = '查看报告';
+          open.addEventListener('click', () => openHistoryReport(entry)); item.append(open);
+        }
+        $('anomalyRows').append(item);
+      }
+    });
+    if (!rows.children.length) {
+      const row = document.createElement('tr');
+      cell(row, filter === 'all' ? '暂无检测记录' : '这个类型暂无记录');
+      row.firstChild.colSpan = 8;
+      rows.append(row);
+    }
+  }
+  $('historyFilter').addEventListener('change', () => { if (state) renderHistory(state); });
+  $('selectAllHistory').addEventListener('change', event => {
+    selectedHistory = new Set(event.target.checked ? state.history.filter(row => historyMatches(row, $('historyFilter').value)).map(row => row.record_id).filter(Boolean) : []);
+    renderHistory(state);
+  });
+  function openHistoryDelete(scope) {
+    if (state.busy || (state.jobs || []).some(job => job.state === 'queued')) {
+      return message('有检测正在运行或排队，请等待完成或取消后再删除历史。', true);
+    }
+    historyDeleteScope = scope;
+    const count = scope.all ? state.history_count ?? state.history.length : scope.record_ids.length;
+    $('historyDeleteSummary').textContent = scope.all ? `将清空全部 ${count} 条检测记录，包含当前列表之外的历史。` : `将删除选中的 ${count} 条检测记录。`;
+    $('historyDeleteFeedback').textContent = '';
+    $('historyDeleteDialog').showModal();
+  }
+  $('deleteSelectedHistory').addEventListener('click', () => openHistoryDelete({record_ids:[...selectedHistory]}));
+  $('clearHistory').addEventListener('click', () => openHistoryDelete({all:true}));
+  $('cancelHistoryDelete').addEventListener('click', () => $('historyDeleteDialog').close());
+  $('historyDeleteDialog').addEventListener('cancel', event => { if (historyDeleting) event.preventDefault(); });
+  $('historyDeleteForm').addEventListener('submit', event => {
+    event.preventDefault();
+    if (!historyDeleteScope) return;
+    busy($('confirmHistoryDelete'), async () => {
+      historyDeleting = true;
+      $('cancelHistoryDelete').disabled = true;
+      try {
+        const removed = await post('history_delete', historyDeleteScope);
+        deletionRefreshPending = true;
+        selectedHistory.clear();
+        $('historyDeleteDialog').close();
+        $('historyReportDialog').close();
+        render(pruneDeletedHistory(state, historyDeleteScope, removed.total_remaining), false);
+        await refreshState();
+        message(`已删除 ${removed.deleted_count} 条历史记录，剩余 ${removed.total_remaining} 条。`);
+      } catch (error) {
+        $('historyDeleteFeedback').textContent = error.message === 'history_busy'
+          ? '有检测正在运行或排队，请等待完成或取消后重试。' : '历史删除未完成，原记录已保留，请重试。';
+      } finally {
+        historyDeleting = false;
+        $('cancelHistoryDelete').disabled = false;
+      }
+    });
+  });
+  async function loadManual() {
+    try {
+      const response = await fetch('manual/content.json', {cache:'no-store'});
+      if (!response.ok) throw new Error();
+      const manual = await response.json();
+      $('manualStatus').textContent = manual.intro;
+      for (const chapter of manual.chapters) {
+        const section = document.createElement('details'); section.id = 'manual-' + chapter.id;
+        const title = document.createElement('summary'); title.textContent = chapter.title; section.append(title);
+        const purpose = document.createElement('p'); purpose.textContent = chapter.purpose; section.append(purpose);
+        const list = document.createElement('ol');
+        for (const step of chapter.steps) { const line = document.createElement('li'); line.textContent = step; list.append(line); }
+        section.append(list);
+        const expected = document.createElement('p'); expected.className = 'manual-expected'; expected.textContent = '预期结果 · ' + chapter.expected; section.append(expected);
+        const tip = document.createElement('p'); tip.className = 'muted'; tip.textContent = chapter.tip; section.append(tip);
+        if (/^[a-z0-9-]+\.png$/.test(chapter.image)) {
+          const figure = document.createElement('figure'), picture = document.createElement('img');
+          picture.src = 'manual/' + chapter.image; picture.alt = chapter.title + '的合成界面截图'; picture.loading = 'lazy'; picture.width = 1280; picture.height = 900;
+          const caption = document.createElement('figcaption'); caption.textContent = '合成示例 · ' + chapter.caption;
+          figure.append(picture, caption); section.append(figure);
+        }
+        const link = document.createElement('a'); link.href = '#' + section.id; link.textContent = chapter.title;
+        link.addEventListener('click', () => { section.open = true; }); $('manualContents').append(link);
+        $('manualChapters').append(section);
+      }
+      if (location.hash.startsWith('#manual-')) document.getElementById(location.hash.slice(1))?.setAttribute('open', '');
+    } catch (_) { $('manualStatus').textContent = '离线手册资源无法读取，请重新打开完整的桌面候选。'; }
   }
   function poll() {
     if (!pollRequest) {
@@ -836,6 +1060,115 @@
   }));
   $('chooseHome').addEventListener('click', () => action('desktop/observe', {}, '选择已处理；只读观察不外传原始数据，取消选择保持现状。'));
   let estimateSequence=0, approvedEstimate=null, auditSubmitting=false, blockedReviewBudget=null;
+  const examDialog = $('examDialog'), examSamples = $('examSamples'), examComparison = $('examComparison');
+  const examBudget = $('examBudgetFields'), examConfirm = $('confirmExam'), examRetry = $('retryExamEstimate');
+  let examTarget = null, examApproval = null, examSequence = 0, examWorking = false;
+  function openExam(target) {
+    examTarget = target;
+    examSamples.value = '120';
+    const matched = Boolean(target.assessment_plan?.matched_reference);
+    examComparison.options[1].disabled = !matched;
+    examComparison.value = matched ? 'paired' : 'relay_only';
+    $('examSettings').textContent = '';
+    examDialog.showModal();
+    estimateExam();
+  }
+  function examInputs() {
+    return {source_alias:examTarget.source_alias, mode:examMode, samples:Number(examSamples.value), comparison:examComparison.value};
+  }
+  function setExamWorking(working) {
+    examWorking = working;
+    examSamples.disabled = examComparison.disabled = $('cancelExam').disabled = examRetry.disabled = working;
+    examBudget.disabled = working || examBudget.hidden;
+    examConfirm.disabled = working || !examApproval;
+  }
+  async function estimateExam() {
+    if (!examTarget || !examDialog.open || examWorking) return;
+    const sequence = ++examSequence;
+    const input = examInputs();
+    examApproval = null;
+    examConfirm.disabled = true;
+    examBudget.hidden = examBudget.disabled = examRetry.hidden = true;
+    $('examSettings').textContent = '';
+    $('examEstimate').textContent = '正在估算整场考试的请求和预算…';
+    try {
+      const plan = await post('estimate', input);
+      if (sequence !== examSequence || !examDialog.open) return;
+      const view = examEstimateView(plan, state.budget);
+      if (Number.isSafeInteger(plan.required_requests)) {
+        $('examSettings').textContent = view.settings;
+        $('examEstimate').textContent = view.cost;
+      } else $('examEstimate').textContent = '';
+      if (view.budget) {
+        $('examBudgetShortfall').textContent = view.shortfall;
+        $('examRequestLimit').value = view.budget.requests;
+        $('examTokenLimit').value = view.budget.tokens;
+        examBudget.hidden = examBudget.disabled = false;
+      } else if (!view.planId) {
+        const hint = plan.status === 'reference_required' ? '当前无法匹配官方参考，请检查参考设置，或选择只考中转。' : errors[plan.status];
+        $('examEstimate').textContent += ' ' + (hint || '当前无法生成考试计划，请重新估算。');
+        examRetry.hidden = false;
+      } else {
+        examApproval = {input, planId:view.planId};
+        examConfirm.disabled = false;
+      }
+    } catch (error) {
+      if (sequence !== examSequence || !examDialog.open) return;
+      $('examEstimate').textContent = errors[error.message] || '无法估算考试，请确认本机服务后重试。';
+      examRetry.hidden = false;
+    }
+  }
+  examSamples.addEventListener('change', estimateExam);
+  examComparison.addEventListener('change', estimateExam);
+  examRetry.addEventListener('click', estimateExam);
+  $('cancelExam').addEventListener('click', () => examDialog.close());
+  examDialog.addEventListener('cancel', event => { if (examWorking) event.preventDefault(); });
+  examDialog.addEventListener('close', () => {
+    examSequence++;
+    examTarget = examApproval = null;
+  });
+  $('applyExamBudget').addEventListener('click', async () => {
+    if (examWorking || examBudget.hidden) return;
+    const requests = $('examRequestLimit'), tokens = $('examTokenLimit');
+    if (!requests.reportValidity() || !tokens.reportValidity()) return;
+    setExamWorking(true);
+    try {
+      await post('budget', {request_limit:Number(requests.value), token_limit:Number(tokens.value)});
+      await refreshState();
+    } catch (error) {
+      $('examBudgetShortfall').textContent = errors[error.message] || '预算更新未完成，请检查输入后重试。';
+      return;
+    } finally {
+      setExamWorking(false);
+    }
+    await estimateExam();
+  });
+  $('examForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!examTarget || !examApproval || examWorking) return;
+    const {input, planId} = examApproval;
+    const current = examInputs();
+    if (current.samples !== input.samples || current.comparison !== input.comparison) return;
+    setExamWorking(true);
+    try {
+      const {job_id:jobId} = await post('run', {...input, exam_plan_id:planId});
+      const feedback = $('target-' + input.source_alias)?.querySelector('.start-feedback');
+      if (feedback) {
+        feedback.hidden = false;
+        feedback.dataset.jobId = jobId;
+        feedback.textContent = '已提交能力考试，可在任务队列查看进度。';
+      }
+      examDialog.close();
+      message('已提交能力考试，可在任务队列查看进度。');
+      await refreshState();
+    } catch (error) {
+      $('examEstimate').textContent = errors[error.message] || '考试提交未完成，请重新估算。';
+      examRetry.hidden = false;
+    } finally {
+      examApproval = null;
+      setExamWorking(false);
+    }
+  });
   function openAudit(alias, mode, reviewOf=null) {
     audit = {source_alias:alias, mode};
     if (reviewOf) audit.review_of = reviewOf;
@@ -964,5 +1297,6 @@
     const link = document.createElement('a'); link.href = url; link.download = 'relay-assessment.'+format; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
+  loadManual();
   poll();
 }());

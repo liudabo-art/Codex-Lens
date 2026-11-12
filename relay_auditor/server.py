@@ -10,6 +10,7 @@ from .protocol import Protocol,OFFICIAL_ENDPOINTS
 from .transport import APIClient, Target, EndpointError
 from .planning import MODES
 from .families import family_for, REFERENCE_FAMILY
+from .manual import MANUAL_ROUTES
 
 
 def make_server(service, *, desktop=None):
@@ -63,6 +64,7 @@ def make_server(service, *, desktop=None):
             files = {'': ('index.html', 'text/html; charset=utf-8'),
                      'app.js': ('app.js', 'text/javascript; charset=utf-8'),
                      'styles.css': ('styles.css', 'text/css; charset=utf-8')}
+            files.update(MANUAL_ROUTES)
             if route not in files:
                 return self.reply(404, {'ok': False})
             filename, mime = files[route]
@@ -107,12 +109,15 @@ def make_server(service, *, desktop=None):
                                                              save_credentials=body.get('save_credentials', False))
                     return self.reply(200, {'ok': True, **matched})
                 if route=='estimate':
-                    return self.reply(200,{'ok':True,**service.estimate(body['source_alias'],body.get('mode','quality'),body.get('samples'),body.get('prices'))})
+                    return self.reply(200, {'ok': True, **service.estimate(
+                        body['source_alias'], body.get('mode', 'quality'), body.get('samples'), body.get('prices'),
+                        comparison=body.get('comparison'))})
                 if route=='cancel':
                     service.cancel(body.get('job_id')); return self.reply(200,{'ok':True})
                 if route == 'target_options':
                     service.update_target(body['source_alias'],display_name=body['display_name'],model=body['model'],
-                                          reasoning_effort=body.get('reasoning_effort'),wire_api=body.get('wire_api'))
+                                          reasoning_effort=body.get('reasoning_effort'),wire_api=body.get('wire_api'),
+                                          max_output_tokens=body.get('max_output_tokens'))
                     return self.reply(200, {'ok': True})
                 if route == 'models':
                     with service.lock:
@@ -169,6 +174,10 @@ def make_server(service, *, desktop=None):
                             return self.reply(400, {'ok': False, 'error': code})
                         raise
                     return self.reply(200, {'ok': True})
+                if route == 'history_delete':
+                    if set(body) not in ({'record_ids'}, {'all'}):
+                        raise ValueError('invalid_history_delete')
+                    return self.reply(200, {'ok': True, **service.delete_history(**body)})
                 if route == 'control':
                     service.control(body['source_alias'], **{k: body[k] for k in ('enabled', 'interval_seconds', 'active_only') if k in body})
                 elif route == 'run':
@@ -179,7 +188,7 @@ def make_server(service, *, desktop=None):
                     if samples is not None and (type(samples) is not int or not 1 <= samples <= 200):
                         raise ValueError('invalid_samples')
                     job_id=service.submit(body['source_alias'],mode,samples,expected_requests=body.get('expected_requests'),
-                                          review_of=body.get('review_of'))
+                                          review_of=body.get('review_of'),exam_plan_id=body.get('exam_plan_id'))
                     return self.reply(200,{'ok':True,'job_id':job_id})
                 elif route == 'budget':
                     service.store.set_limits(body['request_limit'], body['token_limit'])
@@ -204,7 +213,8 @@ def make_server(service, *, desktop=None):
                     'vault_unavailable','profiles_unavailable','queue_full','reference_required','credential_too_large_for_vault',
                     'reference_provider_mismatch','official_direct','busy','invalid_endpoint','invalid_model','invalid_samples',
                     'assessment_changed','invalid_reference_preset','reference_model_mismatch','reference_model_unavailable','reference_model_retired',
-                    'reference_settings_mismatch','reference_changed','target_not_found','reference_use_panel','invalid_credential'
+                    'reference_settings_mismatch','reference_changed','target_not_found','reference_use_panel','invalid_credential',
+                    'exam_changed','exam_unsupported','budget_exhausted','history_busy','invalid_history_delete'
                 ) else 'invalid_request_or_busy'})
             except Exception:
                 self.reply(500, {'ok': False, 'error': 'local_error'})

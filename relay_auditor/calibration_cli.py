@@ -11,9 +11,9 @@ from .prompts import hidden
 def command(args,store):
     protocol=Protocol(wire_api=args.wire_api,stream=args.stream,reasoning_effort=args.reasoning_effort)
     if args.command=='calibration-init':
-        manifest=freeze(args.primary_model,args.alternative_model,protocol,samples=args.samples or 40,trials=args.trials,
+        manifest=freeze(args.primary_model,args.alternative_model,protocol,samples=args.samples,trials=args.trials,
                         seed=args.seed,scope=args.study_scope,
-                        audit_index=args.calibration_audit_index)
+                        audit_index=args.calibration_audit_index,suite=args.suite,family=args.family)
         study_id=manifest['manifest_hash'][:32]; root=checked_path(store.directory/'studies'/study_id)
         root.mkdir(parents=True,exist_ok=True)
         with checked_path(root/'manifest.json').open('x',encoding='utf-8') as output: json.dump(manifest,output,indent=2)
@@ -30,8 +30,8 @@ def command(args,store):
             raise ValueError('invalid_trial')
         store.set_limits(args.request_limit,args.token_limit)
         key=hidden('独立官方校准 API Key（仅固定官方接口，隐藏输入）：')
-        primary=restore_reference('openai',key,manifest['primary_model'],protocol)
-        alternative=restore_reference('openai',key,manifest['alternative_model'],protocol)
+        primary=restore_reference(manifest['official_preset'],key,manifest['primary_model'],protocol)
+        alternative=restore_reference(manifest['official_preset'],key,manifest['alternative_model'],protocol)
         outcome=collect_trial(manifest,args.scenario,args.trial,args.phase,primary,alternative,store,records=records)
         temporary=checked_path(root/('outcomes-'+uuid.uuid4().hex+'.tmp'))
         try:

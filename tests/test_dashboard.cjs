@@ -2,6 +2,42 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const ui = require('../relay_auditor/web/app.js');
 
+test('clear-all removes cached cards outside the visible history after a refresh failure', () => {
+  const state={history:[{record_id:'visible'}],history_reports:[{}],targets:[{source_alias:'relay-1',last_result:{record_id:'older'}}],report_cards:{'relay-1':{headline:'old'}}};
+  const next=ui.pruneDeletedHistory(state,{all:true},0);
+  assert.deepEqual(next.report_cards,{});
+  assert.equal(next.targets[0].last_result,null);
+  assert.equal(next.history_count,0);
+});
+
+test('deleting a screen retains review marks and clears the cached review eligibility', () => {
+  const screen={record_id:'a',job_id:'screen'},review={record_id:'b',review_of:'screen',capability_correct:35};
+  const state={history:[review,screen],history_reports:[{coverage:[]},{}],targets:[{source_alias:'relay-1',last_result:review,review_job_id:'screen',review_available:true}],report_cards:{'relay-1':{coverage:[]}}};
+  const next=ui.pruneDeletedHistory(state,{record_ids:['a']},1);
+  assert.equal(next.targets[0].review_available,false);
+  assert.equal(next.history[0].capability_correct,35);
+  assert.equal(next.history[0].review_source_deleted,true);
+  assert.match(next.report_cards['relay-1'].coverage.join(' '),/初筛记录已删除/);
+});
+
+test('history selection follows stable record IDs across filtering and polling', () => {
+  const a = {record_id:'a',mode:'assessment'}, b = {record_id:'b',mode:'capability_exam',task_count:120};
+  assert.deepEqual(ui.historySelection({history:[b,a]}, new Set(['a','b','deleted']), 'all'), ['a','b']);
+  assert.deepEqual(ui.historySelection({history:[b,a]}, new Set(['a','b']), 'exam120'), ['b']);
+  assert.deepEqual(ui.historySelection({history:[b]}, new Set(['a']), 'all'), []);
+});
+
+test('deleting records does not announce an older failure filling the history window', () => {
+  const record = {mode:'capability_exam',status:'unavailable',job_id:'older-failure'};
+  const report = {headline:'未交卷'};
+  assert.deepEqual(ui.newAssessmentFailures({history:[]}, {history:[record],history_reports:[report]}, true), []);
+});
+
+test('deleted review source is identified explicitly rather than inferred from visible window', () => {
+  const review={review_of:'prior',review_source_deleted:true,paired_result:{valid_pairs:40,target_correct:35,reference_correct:39}};
+  assert.match(ui.pairedReviewSummary(review, []), /初筛记录已删除.*新题复核/);
+});
+
 test('unknown usage never renders as zero', () => {
   assert.equal(ui.formatCount(null), '未知');
   assert.equal(ui.formatCount(0), '0');
@@ -104,4 +140,47 @@ test('only new assessment interruptions prompt the user', () => {
   assert.deepEqual(ui.newAssessmentFailures({history:[old]}, data), [{headline:'检测中止'}]);
   assert.deepEqual(ui.newAssessmentFailures(data, data), []);
   assert.match(ui.assessmentProgress({retry:{source_kind:'reference',retry_question:3,retry_attempt:2}}), /官方参考.*第 3 题.*第 2 次/);
+});
+
+test('exam preview binds start to a fresh plan and shows full budget and shortfalls', () => {
+  const estimate = {status:'ok', exam_plan_id:'plan-id', model:'gpt-test', reasoning_effort:'high',
+    reference_model:'gpt-test-official', reference_reasoning_effort:'medium', max_output_tokens:8192,
+    reference_max_output_tokens:4096, required_requests:240,
+    target_requests:120, reference_requests:120, max_retry_requests:48, max_requests:288,
+    estimated_tokens:900000, minimum_request_limit:298, minimum_token_limit:915000};
+  const budget = {request_limit:100, token_limit:100000};
+  const approved = ui.examEstimateView(estimate, budget);
+  assert.equal(approved.planId, 'plan-id');
+  assert.match(approved.settings, /中转 gpt-test（推理 high，输出上限 8,192 token）.*官方 gpt-test-official（推理 medium，输出上限 4,096 token）/);
+  assert.match(approved.cost, /基础 240 次.*中转 120 次.*官方参考 120 次.*最多重试 48 次.*最多 288 次.*900,000 token.*费用未知/);
+  const blocked = ui.examEstimateView({...estimate, status:'budget_exhausted'}, budget);
+  assert.equal(blocked.planId, null);
+  assert.deepEqual(blocked.budget, {requests:298, tokens:915000});
+  assert.match(blocked.shortfall, /还差 198 次请求.*815,000 token/);
+  assert.equal(ui.examEstimateView({...estimate, exam_plan_id:null}, budget).planId, null);
+});
+
+test('exam history distinguishes the two papers without changing report indices', () => {
+  const routine = {mode:'assessment', task_count:10};
+  const standard = {mode:'capability_exam', task_count:120, sample_count:240};
+  const extended = {mode:'capability_exam', task_count:180};
+  assert.equal(ui.runLabel(standard), '能力考试 · 标准卷（120 题）');
+  assert.equal(ui.runLabel(extended), '能力考试 · 加长卷（180 题）');
+  assert.equal(ui.historyMatches(standard, 'exam180'), false);
+  assert.equal(ui.historyMatches(extended, 'exam180'), true);
+  assert.equal(ui.historyMatches(routine, 'routine'), true);
+  assert.equal(ui.historyMatches(standard, 'routine'), false);
+});
+
+test('exam shows both sides of completion independently of attempts and alerts on interruption', () => {
+  const progress = {completed:18,total:240,exam_progress:[
+    {source_kind:'relay',completed:8,sample_count:120},{source_kind:'reference',completed:7,sample_count:120}],
+    retry:{source_kind:'reference',retry_question:8,retry_attempt:1}};
+  assert.match(ui.assessmentProgress(progress), /中转 8\/120 题.*官方参考 7\/120 题.*官方参考正在重试第 8 题/);
+  const failure = {mode:'capability_exam',status:'unavailable',failure_source:'reference',job_id:'exam-id'};
+  const cancelled = {...failure, status:'cancelled', job_id:'cancelled-exam'};
+  const brief = {headline:'未交卷',diagnostics:['官方参考第 8 题失败'],next_step:'检查连接'};
+  const data = {history:[failure,cancelled],history_reports:[brief,brief]};
+  assert.deepEqual(ui.newAssessmentFailures({history:[]}, data), [brief]);
+  assert.deepEqual(ui.newAssessmentFailures(data, data), []);
 });

@@ -94,6 +94,17 @@ class OfficialBindingTests(unittest.TestCase):
         self.assertEqual(self.monitor.reference.model, 'gpt-5.6-sol')
         self.assertEqual(self.monitor.reference.base_url, 'https://api.openai.com/v1')
 
+    def test_output_limit_change_invalidates_official_pair_until_rematched(self):
+        self.attach(save=True)
+        reference = self.monitor.reference
+        self.service.update_target(self.alias, display_name='Synthetic', model='gpt5.6sol', max_output_tokens=8192)
+        self.assertEqual(self.service.estimate(self.alias, 'assessment')['reference_state'], 'reference_mismatch')
+        self.assertIs(self.monitor.reference, reference)
+        self.assertEqual(self.monitor.reference.protocol.max_output_tokens, 2048)
+        self.attach(save=True)
+        self.assertEqual(self.service.estimate(self.alias, 'assessment')['required_requests'], 20)
+        self.assertEqual(self.monitor.reference.protocol.max_output_tokens, 8192)
+
     def test_static_reference_failure_preserves_relay_scores_and_disables_reference(self):
         alias = self.service.configure('https://relay.invalid/v1', 'synthetic-relay', 'glm-5.1',
                                        Protocol(wire_api='chat'))

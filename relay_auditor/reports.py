@@ -23,13 +23,19 @@ def upgrade(record):
     completed=value.get('capability_completed')
     correct=value.get('capability_correct',0)
     scored = value.get('capability_valid') if value.get('mode') == 'assessment' else completed
+    exam = value.get('mode') == 'capability_exam'
+    if exam and not _exam_submitted(value):
+        scored = None
     accuracy=correct/scored if scored else None
     response_count=value.get('response_count',0)
     counts = value.get('assessment_counts')
     attempted = sum(row['attempted'] for row in counts) if counts else value.get('sample_count', response_count + value.get('network_failures', 0))
+    if exam:
+        sides = (value.get('exam') or {}).get('sides', [])
+        attempted = sum(side.get('attempted', 0) + side.get('retry_requests', 0) for side in sides)
     stability=value.get('dimensions',{}).get('stability',{'status':'not_comparable'})
     value['dimensions']={
-        'quality':{'accuracy':accuracy,'interval':wilson(correct,scored) if scored else None,
+        'quality':{'accuracy':accuracy,'interval':wilson(correct,scored) if scored and not exam else None,
                    'valid_responses':value.get('capability_valid'),'sample_count':scored},
         'behavior':{'identity_state':value.get('identity_state','no_reference'),
                     'p_value':value.get('p_value'),'baseline_id':value.get('baseline_id')},
@@ -51,6 +57,8 @@ ISSUES = {
     'reference_model_retired': '官方原版本已停用，旧型号 ID 已指向其他版本',
     'invalid_response': '接口返回格式无法解析', 'redirect_blocked': '请求发生跳转',
     'http_error': '供应商请求失败', 'remote_error': '供应商返回错误',
+    'exam_changed': '考试条件已变更', 'exam_unsupported': '当前目标不支持能力考试',
+    'reference_required': '官方同型号参考已不可用',
 }
 TASK_LABELS = {
     'constraints': '多步推理', 'code': '代码追踪', 'repair': '代码纠错',
@@ -59,9 +67,189 @@ TASK_LABELS = {
 }
 
 
+EXAM_TASK_LABELS = {
+    'exam_reasoning': '多步推理', 'exam_code': '代码追踪', 'exam_repair': '边界纠错',
+    'exam_information': '信息整合', 'exam_structure': '结构化指令',
+}
+EXAM_DIFFICULTY_LABELS = {1: '基础', 2: '进阶', 3: '挑战'}
+EXAM_SOURCE_LABELS = {'relay': '中转', 'reference': '官方参考'}
+
+GRADING_LABELS = {
+    'ambiguous_answer': '存在多个答案', 'duplicate_keys': 'JSON 字段重复',
+    'missing_answer': '缺少答案', 'missing_fields': '缺少必要字段',
+    'unexpected_fields': '含有不允许的字段', 'answer_type': '答案类型不符',
+    'invalid_json': '答案无法解析', 'nonfinite_number': '含非有限数值',
+    'answer_too_large': '答案超过解析上限', 'answer_too_deep': '嵌套超过解析上限',
+    'too_many_candidates': '答案候选过多',
+}
+
+
+def item_evidence(record):
+    lines = []
+    for item in record.get('item_results', []):
+        source = EXAM_SOURCE_LABELS.get(item.get('source_kind'), '目标')
+        result = ('正确' if item.get('correct') is True else '答案错误' if item.get('correct') is False
+                  else '格式失分' if item.get('error_code') == 'answer_format'
+                  else '请求未完成' if item.get('attempts') else '未作答')
+        reason = GRADING_LABELS.get(item.get('grading_issue'))
+        if item.get('format_state') == 'recovered_format':
+            result += '，格式已恢复'
+        if reason:
+            result += '，' + reason
+        lines.append(f'第 {item.get("question_number")} 题 · {source} · {result} · '
+                     f'难度 {item.get("difficulty")} · 模板 {item.get("template")} · '
+                     f'种子 {item.get("seed")} · 已发 {item.get("attempts", 0)} 次请求。')
+    return lines
+
+
+def _exam_submitted(record):
+    exam = record.get('exam') or {}
+    count = record.get('task_count')
+    completed = {side.get('source_kind'): side.get('completed') for side in exam.get('sides', [])}
+    required = {'relay': count, 'reference': count} if exam.get('comparison') == 'paired' else {'relay': count}
+    return (record.get('status') == 'ok' and exam.get('submitted') is True and count in (120, 180)
+            and completed == required)
+
+
+def _exam_groups(sections, field):
+    totals = {}
+    for row in sections:
+        by_side = totals.setdefault(row[field], {})
+        marks = by_side.setdefault(row['source_kind'], [0, 0])
+        marks[0] += row['correct']
+        marks[1] += row['sample_count']
+    return totals
+
+
+def _exam_marks(marks):
+    return '，'.join(f'{EXAM_SOURCE_LABELS[side]} {correct}/{total}' for side, (correct, total) in marks.items())
+
+
+def _explain_exam(record):
+    exam = record.get('exam') or {}
+    count = record.get('task_count') or 0
+    title = '能力考试 · ' + ('加长卷' if count == 180 else '标准卷')
+    submitted = _exam_submitted(record)
+    paired = exam.get('comparison') == 'paired'
+    sides = exam.get('sides', [])
+    pair = record.get('paired_result') or {}
+    sections = exam.get('sections', [])
+    next_step = '如需比较官方水平，可配置同型号官方参考后再考一场。'
+    reference_note = '本场仅评估中转。'
+    if paired:
+        reference_note = f'同题官方对照。请求型号为中转 {record.get("model") or "未记录"}、官方 {record.get("reference_model") or "未记录"}。'
+        next_step = '如需观察差距是否持续，可在同样的设置下另做一份新卷。'
+    coverage = []
+    diagnostics = []
+    details = [f'题库 {record.get("suite_version") or "未记录"}，种子 {record.get("task_seed", "未记录")}，计划每侧 {count} 题。']
+    format_notes = []
+    score_tiles = []
+    task_summary = []
+    task_details = []
+    for side in sides:
+        name = EXAM_SOURCE_LABELS[side['source_kind']]
+        coverage.append(f'{name}完成 {side["completed"]}/{side["sample_count"]} 题，已尝试 {side["attempted"]} 题。')
+        if side.get('retry_requests'):
+            coverage.append(f'{name}额外重试 {side["retry_requests"]} 次，已计入用量。')
+        if side.get('format_failures'):
+            format_notes.append(f'{name}格式失分 {side["format_failures"]} 道，计 0 分。')
+        if side.get('format_recovered'):
+            format_notes.append(f'{name}恢复格式 {side["format_recovered"]} 道，按答案内容判分。')
+    for row in record.get('response_issues', []):
+        code = row.get('error_code')
+        if code not in ('answer_format', 'recovered_format'):
+            name = EXAM_SOURCE_LABELS.get(row.get('source_kind'), '来源未记录')
+            diagnostics.append(f'{name}{ISSUES.get(code, "请求未完成")} {row["sample_count"]} 次。')
+    for field, name in (('comparison_conditions', '中转'), ('reference_comparison_conditions', '官方参考')):
+        conditions = record.get(field)
+        if conditions:
+            temperature = conditions.get('temperature')
+            details.append(f'{name}请求使用 {conditions.get("wire_api", "未记录")} 协议、'
+                           f'{conditions.get("reasoning_effort") or "服务默认"}推理档位、'
+                           f'输出上限 {conditions.get("max_output_tokens", "未记录")}、'
+                           f'温度 {temperature if temperature is not None else "服务默认"}。')
+
+    if submitted:
+        headline = '能力考试已交卷'
+        observed = '。'.join(f'{EXAM_SOURCE_LABELS[side["source_kind"]]} {100 * side["correct"] / count:.1f} 分，'
+                            f'答对 {side["correct"]}/{count}' for side in sides) + '。'
+        score_tiles = [{'label': EXAM_SOURCE_LABELS[side['source_kind']],
+                        'score': f'{100 * side["correct"] / count:.1f} 分'} for side in sides]
+        by_task = _exam_groups(sections, 'task_kind')
+        by_difficulty = _exam_groups(sections, 'difficulty')
+        if paired and pair.get('valid_pairs') == count:
+            scores = {side['source_kind']: side['correct'] for side in sides}
+            gap = scores['reference'] - scores['relay']
+            if gap:
+                direction = '低' if gap > 0 else '高'
+                observed += f'中转{direction} {100 * abs(gap) / count:.1f} 个百分点。'
+                if gap > 0:
+                    deficits = [kind for kind, marks in by_task.items()
+                                if marks['reference'][0] > marks['relay'][0]]
+                    if deficits:
+                        largest = max(deficits, key=lambda kind: by_task[kind]['reference'][0] - by_task[kind]['relay'][0])
+                        observed += f'主要落后项为{EXAM_TASK_LABELS[largest]}。'
+            else:
+                observed += '两边答对数相同。'
+            coverage.append(f'可比较 {count}/{count} 道同题。')
+            p, alpha = pair.get('p_value'), pair.get('alpha')
+            if pair.get('status') == 'degraded' and gap * 10 >= count and p is not None and alpha is not None and p <= alpha:
+                headline = '本场同条件下，中转表现明显低于官方'
+            else:
+                reference_note += '本场未达到判定中转明显落后的门槛。'
+            details.append(f'同题配对检验 p={p}，本轮阈值 {alpha}，最低判定差距 10 个百分点。')
+        for kind, name in EXAM_TASK_LABELS.items():
+            if kind in by_task:
+                task_summary.append(f'{name} · {_exam_marks(by_task[kind])}。')
+        for level, name in EXAM_DIFFICULTY_LABELS.items():
+            if level in by_difficulty:
+                task_summary.append(f'{name} · {_exam_marks(by_difficulty[level])}。')
+        for section in sections:
+            name = EXAM_TASK_LABELS[section['task_kind']]
+            level = EXAM_DIFFICULTY_LABELS[section['difficulty']]
+            side = EXAM_SOURCE_LABELS[section['source_kind']]
+            task_details.append(f'{side} · {name} · {level} · 答对 {section["correct"]}/{section["sample_count"]}。')
+    else:
+        headline = '能力考试未交卷'
+        observed = '本场只保留作答进度和已产生的用量。'
+        status = record.get('status')
+        source = EXAM_SOURCE_LABELS.get(record.get('failure_source'))
+        question = record.get('failure_question')
+        location = (source or '') + (f'第 {question} 题' if question else '')
+        error_code = record.get('error_code')
+        if status == 'budget_exhausted':
+            diagnostics.insert(0, location + '因预算不足而停止。')
+            next_step = '检查当日剩余预算，再预览一场新考试。'
+        elif status == 'cancelled':
+            diagnostics.insert(0, '用户取消了后续作答。')
+            next_step = '准备好后可重新开始一场完整考试。'
+        else:
+            diagnostics.insert(0, location + ISSUES.get(error_code, '请求未完成') + '。')
+            steps = {
+                'authentication_failed': '检查失败侧的 API Key 后重新预览考试。',
+                'unsupported_parameters': '检查失败侧支持的协议和推理档位后重新预览考试。',
+                'output_limit': '检查输出上限和推理档位后重新预览考试。',
+                'reference_required': '重新匹配同型号官方参考后开始新考试。',
+                'exam_changed': '重新预览当前设置和预算后开始新考试。',
+                'exam_unsupported': '选择受支持的 GPT/Codex 或 DeepSeek 中转模型后开始考试。',
+            }
+            next_step = steps.get(error_code, '检查失败侧的连接或接口状态后，重新开始一场完整考试。')
+
+    details.extend(item_evidence(record))
+    return {'task_label': title, 'headline': headline, 'capability': observed, 'comparison': reference_note,
+            'reference_note': reference_note, 'identity': '型号身份仍待确认。',
+            'diagnostics': diagnostics, 'observed': observed, 'coverage': coverage,
+            'evaluated_at': record.get('evaluated_at', ''), 'next_step': next_step,
+            'task_details': task_details, 'task_summary': task_summary, 'score_tiles': score_tiles,
+            'details': details, 'limitations': '实验性考试。成绩仅覆盖本场题型、时间与请求设置。',
+            'format_notes': format_notes}
+
+
 def explain(record):
     """Derive ordinary-language copy exclusively from anonymous aggregate fields."""
     record = safe_snapshot(record)
+    if record.get('mode') == 'capability_exam':
+        return _explain_exam(record)
     n = record.get('capability_valid') or 0
     correct = record.get('capability_correct') or 0
     pair = record.get('paired_result') or {}
@@ -272,6 +460,9 @@ def explain(record):
         if record.get('status') == 'ok':
             headline = '对照未完整完成，暂无法判断能力下降'
         limitations += '部分计划题目无法比较，不能据此得出完整对照结论。'
+    if record.get('review_source_deleted'):
+        coverage.append('这次复核的初筛记录已删除，复核结果独立保留。')
+    details.extend(item_evidence(record))
     return {'headline': headline, 'capability': capability, 'comparison': comparison, 'reference_note': reference_note,
             'identity': identity, 'diagnostics': diagnostics, 'observed': observed, 'coverage': coverage,
             'evaluated_at': record.get('evaluated_at', ''), 'next_step': next_step,
@@ -280,11 +471,13 @@ def explain(record):
 
 
 def trend(records):
+    records = [row for row in records if row.get('mode') != 'capability_exam']
+
     def completed(row):
         base = (row.get('status') == 'ok' and row.get('capability_completed') and
                 row.get('capability_valid') == row.get('capability_completed') and
                 not row.get('network_failures') and not row.get('invalid_responses'))
-        if row.get('suite_version') == 'assessment-v3' or (row.get('suite_version') == 'assessment-v2' and row.get('task_count') is not None):
+        if row.get('suite_version') in ('assessment-v3', 'assessment-v4') or (row.get('suite_version') == 'assessment-v2' and row.get('task_count') is not None):
             return base and type(row.get('task_count')) is int and row['task_count'] > 0 and row['task_count'] == row['capability_completed'] and type(row.get('task_seed')) is int
         return base
     dated=sorted((r for r in records if r.get('target_id')),key=lambda r:r.get('evaluated_at',''))
@@ -300,9 +493,9 @@ def trend(records):
              'reference_protocol_id','sample_count')
     previous=[r for r in rows[:-1] if all(r.get(k)==newest.get(k) for k in binding)]
     if not previous: return {'status':'not_comparable','sample_count':len(rows)}
-    if newest.get('suite_version') in ('assessment-v2', 'assessment-v3'):
+    if newest.get('suite_version') in ('assessment-v2', 'assessment-v3', 'assessment-v4'):
         candidates = [*previous, newest]
-        if newest.get('suite_version') == 'assessment-v3' or all(type(row.get('task_count')) is int for row in candidates):
+        if newest.get('suite_version') in ('assessment-v3', 'assessment-v4') or all(type(row.get('task_count')) is int for row in candidates):
             window = []
             for row in reversed(candidates):
                 if type(row.get('task_count')) is not int or type(row.get('task_seed')) is not int:

@@ -35,6 +35,12 @@ def smoke(bundle):
             raise ValueError('worker_accounting_failed')
         if not (resources/'relay_auditor/web/index.html').is_file() or not (resources/'assets/codex-lens.png').is_file():
             raise ValueError('ui_resource_missing')
+        manual = resources/'relay_auditor/web/manual'
+        guide = json.loads((manual/'content.json').read_text(encoding='utf-8'))
+        for chapter in guide['chapters']:
+            filename = chapter['image']
+            if '/' in filename or '\\' in filename or not (manual/filename).is_file():
+                raise ValueError('manual_resource_missing')
         print('frozen_worker_synthetic_smoke_passed')
 
 

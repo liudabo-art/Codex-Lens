@@ -18,6 +18,7 @@ from .storage import Store, BudgetExceeded, safe_snapshot
 from .transport import APIClient, Target, EndpointError
 from .models import display_name as checked_name, model_choices
 from .families import family_for, REFERENCE_FAMILY, usable_reference, reasoning_reference, reference_identity, reference_issue
+from .planning import EXAM_MODE, exam_available, exam_plan
 
 REFERENCE_BLOCKERS = frozenset(('authentication_failed', 'unsupported_parameters', 'reference_model_unavailable'))
 
@@ -48,6 +49,7 @@ class Monitor:
     last_started: float | None = None
     last_active: float | None = None
     last_result: dict | None = None
+    previous_non_exam_result: dict | None = None
     anomalies: int = 0
     cancel: threading.Event = field(default_factory=threading.Event, repr=False)
     display_name: str = field(default='未命名测试', repr=False)
@@ -66,6 +68,16 @@ class Monitor:
     reference_error: str | None = None
 
 
+@dataclass(frozen=True, repr=False)
+class ExamApproval:
+    target_id: str
+    target: Target
+    reference: Target | None
+    plan: dict
+    limits: tuple[int, int]
+    expires: float
+
+
 class Service:
     def __init__(self, store: Store, *, client_factory=APIClient, clock=time.time,profiles=None):
         self.store, self.client_factory, self.clock = store, client_factory, clock
@@ -80,6 +92,8 @@ class Service:
         self.catalog_source = None
         self.stop_event = threading.Event()
         self.jobs={}; self.pending=[]; self.current_job=None; self.progress={}; self._latencies=[]
+        self.exam_previews: dict[str, ExamApproval] = {}
+        self.queued_exams: dict[str, ExamApproval] = {}
         self.local_usage = {'local_status': 'no_data', 'source_kind': 'unknown',
                             'source_attribution': 'unknown_historical_route'}
         self.profiles=profiles
@@ -300,14 +314,15 @@ class Service:
             self.next_target_number+=1
         return alias
 
-    def update_target(self, alias, *, display_name, model, reasoning_effort=None, wire_api=None):
+    def update_target(self, alias, *, display_name, model, reasoning_effort=None, wire_api=None, max_output_tokens=None):
         name = checked_name(display_name)
         with self.lock:
             if self.busy:
                 raise ValueError('busy')
             monitor = self.monitors[alias]
             protocol = replace(monitor.target.protocol, reasoning_effort=reasoning_effort or None,
-                               wire_api=wire_api if wire_api is not None else monitor.target.protocol.wire_api)
+                               wire_api=wire_api if wire_api is not None else monitor.target.protocol.wire_api,
+                               max_output_tokens=max_output_tokens if max_output_tokens is not None else monitor.target.protocol.max_output_tokens)
             target = replace(monitor.target, model=model, protocol=protocol)
             reference = monitor.reference
             expected_reference = model if monitor.reference_follows_model else monitor.reference_model
@@ -353,6 +368,9 @@ class Service:
         for job_id in self.pending:
             if self.jobs[job_id]['target_id'] == monitor.target_id:
                 self.jobs[job_id]['state'] = 'cancelled'
+                self.queued_exams.pop(job_id, None)
+        self.exam_previews = {key: approval for key, approval in self.exam_previews.items()
+                              if approval.target_id != monitor.target_id}
         self.pending = [job_id for job_id in self.pending if self.jobs[job_id]['state'] == 'queued']
 
     def delete_target(self, target_id):
@@ -374,6 +392,28 @@ class Service:
                 raise
             self._disable_target(monitor)
             del self.monitors[monitor.source_alias]
+
+    def delete_history(self, record_ids=None, *, all=None):
+        with self.lock:
+            ids = self.store.history_delete_ids(record_ids, all=all)
+            if self.busy or self.pending:
+                raise ValueError('history_busy')
+            result = self.store.delete_history(record_ids=record_ids, all=all)
+            for monitor in self.monitors.values():
+                for attribute in ('last_result', 'previous_non_exam_result'):
+                    cached = getattr(monitor, attribute)
+                    if cached is not None and (ids is None or cached.get('record_id') in ids):
+                        setattr(monitor, attribute, None)
+            return result
+
+    @staticmethod
+    def _history_result_view(result, job_keys):
+        if result is None:
+            return None
+        value = dict(result)
+        if value.get('review_of'):
+            value['review_source_deleted'] = (value.get('target_id'), value['review_of']) not in job_keys
+        return value
 
     def control(self, alias, *, enabled=None, interval_seconds=None, active_only=None):
         with self.lock:
@@ -430,6 +470,8 @@ class Service:
                 monitor.cancel.set()
             for job_id in self.pending: self.jobs[job_id]['state']='cancelled'
             self.pending.clear()
+            self.exam_previews.clear()
+            self.queued_exams.clear()
 
     def _begin(self, alias, mode, automatic=False):
         with self.lock:
@@ -442,7 +484,8 @@ class Service:
             if automatic and not self.due(alias):
                 return None
             monitor.cancel.clear()
-            monitor.last_started = self.clock()
+            if mode != EXAM_MODE:
+                monitor.last_started = self.clock()
             self.busy, self.running_mode = True, mode
             self.progress={'source_alias':alias,'target_id':monitor.target_id,'mode':mode,'completed':0,'total':0}
             self._latencies=[]
@@ -451,6 +494,8 @@ class Service:
     def _review_candidate(self, monitor):
         from .assessment import VERSION
         result = monitor.last_result or {}
+        if result.get('mode') == EXAM_MODE:
+            result = monitor.previous_non_exam_result or {}
         pair = result.get('paired_result') or {}
         reference = usable_reference(monitor)
         if (reference and result.get('job_id') and result.get('mode') == 'assessment'
@@ -465,7 +510,27 @@ class Service:
             return result
         return None
 
-    def submit(self, alias, mode, samples=None, *, automatic=False,seed=None,expected_requests=None,review_of=None):
+    def _exam_status(self, monitor, approval):
+        if monitor is None or monitor.target_id != approval.target_id or monitor.target is not approval.target:
+            return 'exam_changed'
+        if approval.plan['comparison'] == 'paired' and usable_reference(monitor) is not approval.reference:
+            return 'exam_changed'
+        budget = self.store.budget()
+        if (budget['request_limit'], budget['token_limit']) != approval.limits:
+            return 'exam_changed'
+        return exam_plan(monitor, approval.plan['sample_count'], approval.plan['comparison'], budget)['status']
+
+    def _confirm_exam(self, monitor, samples, plan_id):
+        approval = self.exam_previews.pop(plan_id, None) if isinstance(plan_id, str) else None
+        if (approval is None or approval.expires <= time.monotonic()
+                or (samples is not None and samples != approval.plan['sample_count'])):
+            raise ValueError('exam_changed')
+        status = self._exam_status(monitor, approval)
+        if status != 'ok':
+            raise ValueError(status)
+        return approval
+
+    def submit(self, alias, mode, samples=None, *, automatic=False,seed=None,expected_requests=None,review_of=None,exam_plan_id=None):
         from .planning import MODES, assessment_plan
         with self.lock:
             if seed is not None and (type(seed) is not int or not 0<=seed<2**31): raise ValueError('invalid_seed')
@@ -475,6 +540,15 @@ class Service:
             if samples is not None and (type(samples) is not int or not 1<=samples<=200): raise ValueError('invalid_samples')
             monitor=self.monitors[alias]
             if not monitor.credential_ready: raise ValueError('credential_required')
+            approval = None
+            if mode == EXAM_MODE:
+                if automatic or seed is not None or review_of is not None:
+                    raise ValueError('exam_changed')
+                if any(job['mode'] == EXAM_MODE and job['target_id'] == monitor.target_id
+                       and job['state'] in ('queued', 'running', 'cancelling') for job in self.jobs.values()):
+                    raise ValueError('busy')
+                approval = self._confirm_exam(monitor, samples, exam_plan_id)
+                samples = approval.plan['sample_count']
             if automatic and (self.busy or self.pending or not self.due(alias)): return False
             if review_of is not None:
                 candidate = self._review_candidate(monitor)
@@ -501,6 +575,8 @@ class Service:
                                'state':'queued','automatic':automatic}
             if review_of is not None:
                 self.jobs[job_id]['review_of'] = review_of
+            if approval is not None:
+                self.queued_exams[job_id] = approval
             self.pending.append(job_id)
             self._drain()
             return job_id
@@ -509,6 +585,12 @@ class Service:
         if self.busy or self.stop_event.is_set(): return
         while self.pending:
             job_id=self.pending.pop(0); job=self.jobs[job_id]; alias=job['source_alias']; monitor=self.monitors.get(alias)
+            approval = self.queued_exams.pop(job_id, None)
+            if approval is not None and job['state'] == 'queued':
+                status = self._exam_status(monitor, approval)
+                if status != 'ok':
+                    job['state'] = status
+                    continue
             if (job['state']!='queued' or monitor is None or not monitor.credential_ready or job['target_id']!=monitor.target_id
                     or job['model']!=monitor.target.model or job['protocol_id']!=monitor.target.protocol.identity):
                 job['state']='cancelled'; continue
@@ -518,7 +600,10 @@ class Service:
             monitor=self._begin(alias,job['mode'])
             self.current_job=job_id; job['state']='running'
             self.progress['job_id']=job_id
-            threading.Thread(target=self._run,args=(alias,monitor,job['mode'],job['sample_count'],job['task_seed'],not job['automatic']),daemon=True,name='relay-detection').start()
+            args = (alias, monitor, job['mode'], job['sample_count'], job['task_seed'], not job['automatic'])
+            if approval is not None:
+                args += (approval.plan,)
+            threading.Thread(target=self._run, args=args, daemon=True, name='relay-detection').start()
             break
         # Bounded completed metadata; active jobs are never discarded.
         if len(self.jobs)>200:
@@ -534,7 +619,9 @@ class Service:
             if job_id is not None and job_id not in self.jobs: raise ValueError('unknown_job')
             for key,job in self.jobs.items():
                 if job_id is not None and key!=job_id: continue
-                if job['state']=='queued': job['state']='cancelled'
+                if job['state']=='queued':
+                    job['state']='cancelled'
+                    self.queued_exams.pop(key, None)
                 elif key==self.current_job and self.busy:
                     job['state']='cancelling'; self.monitors[job['source_alias']].cancel.set()
             self.pending=[key for key in self.pending if self.jobs[key]['state']=='queued']
@@ -549,14 +636,35 @@ class Service:
             else:
                 self.progress['retry'] = retry
 
+    def set_exam_progress(self, sides):
+        with self.lock:
+            self.progress['exam_progress'] = [
+                {key: side[key] for key in ('source_kind', 'completed', 'sample_count')} for side in sides
+            ]
+
     def wait_for_retry(self, monitor, seconds):
         if monitor.cancel.wait(seconds) or self.stop_event.is_set():
             raise Cancelled()
 
-    def estimate(self,alias,mode,samples=None,prices=None):
+    def estimate(self,alias,mode,samples=None,prices=None,*,comparison=None):
         from .planning import estimate, assessment_plan
         with self.lock:
             m=self.monitors[alias]
+            if mode == EXAM_MODE:
+                budget = self.store.budget()
+                plan = exam_plan(m, samples, comparison, budget)
+                if plan['status'] != 'ok':
+                    return plan
+                now = time.monotonic()
+                self.exam_previews = {key: approval for key, approval in self.exam_previews.items()
+                                      if approval.expires > now}
+                if len(self.exam_previews) >= 64:
+                    self.exam_previews.pop(next(iter(self.exam_previews)))
+                plan_id = uuid.uuid4().hex
+                reference = usable_reference(m) if plan['comparison'] == 'paired' else None
+                self.exam_previews[plan_id] = ExamApproval(m.target_id, m.target, reference, plan,
+                                                           (budget['request_limit'], budget['token_limit']), now + 600)
+                return {**plan, 'exam_plan_id': plan_id}
             if mode == 'assessment':
                 plan = assessment_plan(m, samples)
                 if not self.store.available(plan['required_requests'], plan['estimated_tokens']):
@@ -565,8 +673,15 @@ class Service:
             reference = reasoning_reference(m) if mode == 'reasoning' else usable_reference(m)
             return estimate(mode,samples,m.target.protocol,reference is not None,prices)
 
-    def run(self, alias, mode, samples=None,*,seed=None):
+    def run(self, alias, mode, samples=None,*,seed=None,exam_plan_id=None):
         if seed is not None and (type(seed) is not int or not 0<=seed<2**31): raise ValueError('invalid_seed')
+        if mode == EXAM_MODE:
+            with self.lock:
+                if self.stop_event.is_set() or seed is not None:
+                    raise ValueError('exam_changed')
+                approval = self._confirm_exam(self.monitors[alias], samples, exam_plan_id)
+                monitor = self._begin(alias, mode)
+            return self._run(alias, monitor, mode, approval.plan['sample_count'], approved_exam=approval.plan)
         return self._run(alias, self._begin(alias, mode), mode, samples,seed)
 
     def _call(self, monitor, case, *, reference=False, batch=None):
@@ -748,11 +863,13 @@ class Service:
             result['detected_anomaly'] = comparison['significant']
         return result
 
-    def _run(self, alias, monitor, mode, samples,seed=None,recover=True):
+    def _run(self, alias, monitor, mode, samples,seed=None,recover=True,approved_exam=None):
         reference = None
         if mode == 'reasoning':
             reference = reasoning_reference(monitor)
         elif mode in ('assessment', 'quality_audit', 'baseline', 'identity_audit', 'capability_audit', 'screen'):
+            reference = usable_reference(monitor)
+        elif mode == EXAM_MODE and approved_exam and approved_exam['comparison'] == 'paired':
             reference = usable_reference(monitor)
         reference_model = reference.model if reference else None
         if mode == 'screen' and not monitor.reference_preset:
@@ -778,6 +895,9 @@ class Service:
                 run_assessment(self, monitor, samples, result, seed=seed, recover=recover)
                 if result.get('detected_anomaly') and not monitor.cancel.is_set():
                     self.notification_id += 1
+            elif mode == EXAM_MODE:
+                from .exam import run_exam
+                run_exam(self, monitor, approved_exam, result, seed=secrets.randbelow(2**31))
             elif mode in ('quality','quality_audit','context','reasoning'):
                 from .quality import run_quality
                 result.update(run_quality(self,monitor,mode,samples,result,seed=seed))
@@ -832,14 +952,17 @@ class Service:
             result['notification_id'] = self.notification_id
             from .reports import upgrade
             safe = upgrade(result)
-            from .reports import trend
-            safe['dimensions']['stability']=trend([r for r in self.store.history(200) if r.get('target_id')==monitor.target_id]+[safe])
+            if mode != EXAM_MODE:
+                from .reports import trend
+                safe['dimensions']['stability']=trend([r for r in self.store.history(200) if r.get('target_id')==monitor.target_id]+[safe])
             try:
-                self.store.record(safe)
+                safe['record_id'] = self.store.record(safe)
             except Exception:
                 safe.update(status='unavailable', error_code='local_error')
             finally:
                 with self.lock:
+                    if mode == EXAM_MODE and (monitor.last_result or {}).get('mode') != EXAM_MODE:
+                        monitor.previous_non_exam_result = monitor.last_result
                     monitor.last_result = safe
                     self.busy, self.running_mode = False, None
                     if self.current_job:
@@ -865,19 +988,24 @@ class Service:
         from .planning import assessment_plan, support
         from .reports import upgrade, comparisons
         with self.lock:
+            history_job_keys = self.store.history_job_keys()
+            reviews = {alias: self._review_candidate(m) for alias, m in self.monitors.items()}
             targets = [{'source_alias': alias, 'model': m.target.model, 'protocol_id': m.target.protocol.identity,
                         'source_kind':m.target.role, 'model_family':family_for(m.target.model),
                         'assessment_plan':assessment_plan(m),
+                        'exam_available':exam_available(m),
                         'wire_api':m.target.protocol.wire_api,
                         'target_id':m.target_id,'credential_ready':m.credential_ready,
-                        'review_available':self._review_candidate(m) is not None,
+                        'review_available':reviews[alias] is not None,
+                        'review_job_id':reviews[alias]['job_id'] if reviews[alias] else None,
                         'reference_preset':m.reference_preset,'reference_model':m.reference_model,
                         'reference_saved':m.reference_saved,'reference_error':reference_issue(m),
                         'reasoning_effort':m.target.protocol.reasoning_effort,
+                        'max_output_tokens':m.target.protocol.max_output_tokens,
                         'enabled': m.enabled, 'interval_seconds': m.interval_seconds, 'active_only': m.active_only,
                         'status': 'credential_required' if not m.credential_ready else 'disabled' if not m.enabled else 'running' if self.busy else
                                   'waiting_for_activity' if m.active_only and not self.due(alias) and m.last_active is None else 'idle',
-                        'last_result': m.last_result,
+                        'last_result': self._history_result_view(m.last_result, history_job_keys),
                         'stale': m.last_result is None or not m.enabled or
                                  self.clock() - (m.last_started or 0) > max(m.interval_seconds * 2, 1800)}
                        for alias, m in self.monitors.items()]
@@ -886,7 +1014,7 @@ class Service:
                 binding = reference_identity(monitor)
                 baseline = self.store.baseline(monitor.target.model, binding, monitor.reference_model) if binding else None
                 support_rows.append(support(monitor, baseline))
-            history = [upgrade(row) for row in self.store.history(200)]
+            history = [self._history_result_view(upgrade(row), history_job_keys) for row in self.store.history(200)]
             return safe_snapshot({'schema_version': 2, 'snapshot_type': 'assessment', 'epoch_id': self.epoch_id,
                               'generated_at': stamp(), 'targets': targets, 'busy': self.busy,
                               'running_mode': self.running_mode, 'notification_id': self.notification_id,
@@ -894,6 +1022,6 @@ class Service:
                                           'catalog_id': self.catalog.catalog_id if self.catalog else None,
                                           'providers': self.catalog.summary() if self.catalog else []},
                               'budget': self.store.budget(), 'usage': {**self.store.usage(), **self.local_usage},
-                              'history':history,'comparisons':comparisons(history),
+                              'history':history,'history_count':self.store.history_count(),'comparisons':comparisons(history),
                               'jobs':list(self.jobs.values()),'progress':self.progress,
                               'support':support_rows})

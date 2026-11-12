@@ -142,11 +142,22 @@ def _extract(body, chunks, state):
 def _read_stream(response, chunks, state):
     remaining = MAX_RESPONSE
     saw_delta = False
+    saw_event = False
     try:
         while line := response.readline(remaining + 1):
             remaining -= len(line)
             if remaining < 0:
                 raise EndpointError('response_too_large')
+            if not saw_event and line.lstrip().startswith(b'{'):
+                # Some compatible APIs label a complete JSON body as SSE.
+                # Parse the bounded body without weakening actual SSE termination checks.
+                tail = response.read(remaining + 1)
+                if len(tail) > remaining:
+                    raise EndpointError('response_too_large')
+                _extract(json.loads(line + tail), chunks, state)
+                return
+            if line.strip():
+                saw_event = True
             if not line.startswith(b'data:'):
                 continue
             data = line[5:].strip()
@@ -216,7 +227,10 @@ class APIClient:
             raise EndpointError('invalid_response') from None
 
     def complete(self, case: ProbeCase):
-        if type(case) is not ProbeCase or len(case.prompt) > 262144:
+        from .exam import ExamCase
+
+        # Both are owned synthetic dataclasses. Arbitrary subclasses stay rejected.
+        if type(case) not in (ProbeCase, ExamCase) or len(case.prompt) > 262144:
             raise EndpointError('invalid_synthetic_case')
         target, protocol = self.target, self.target.protocol
         if target.official_preset:

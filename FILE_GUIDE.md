@@ -7,10 +7,14 @@
 | desktop_actions.py / runtime.py | 原生选择、固定目录匿名导出、窗口提醒、专用数据目录与固定 worker 命令 |
 | build_tools/ / requirements-*.txt / assets/ | 原生安装候选、固定依赖、应用图标、源码审阅包与合成冒烟 |
 | VERSION / .github/workflows/ | 独立候选版本、推送时合成检查和手动原生构建矩阵 |
+| WORKLOG.md / docs/VERIFICATION.md | 完成的工作、实际验证及未验证范围 |
 | protocol.py / statistics.py | 合成题、数字特征、固定批次分布检验、McNemar |
 | core.py / __main__.py / cli.py | 桌面、CLI、Python共用的生命周期和API v2 |
 | suites.py / quality.py | 版本化随机任务、确定性评分、质量/上下文/推理工作流 |
 | families.py / assessment.py | 声明家族选题、同条件官方参考匹配、分项能力、同题重试和匿名失败归因 |
+| exam.py | 两家族分层试卷、整场交卷、同题重试与分项统计 |
+| exam_generators.py / grading.py | 四结构题集、有界唯一 JSON 提取、细分格式诊断与匿名逐题证据 |
+| manual.py / web/manual/ / docs/USER_MANUAL.md | 固定离线图片资源、图文内容源与实际界面合成截图、生成的 Markdown 手册 |
 | reports.py / exporting.py / planning.py | 四维证据、v1兼容、同条件历史、离线HTML、预算/费用/支持矩阵 |
 | profiles.py / vault.py / prompts.py | 私人配置、稳定目标编号、独立保存中转及官方 Key、按目标清理专用 Windows 凭据 |
 | official.py / adapters.py | 16 个官方文本入口、型号目录和别名、对照请求参数、Anthropic/Gemini 原生文本与流式用量 |
@@ -20,6 +24,7 @@
 | models.py | 有界配置/API模型ID列表过滤、自定义本地显示名验证 |
 | transport.py | 内存凭据、API/SSE、固定官方参考、禁止代理继承/重定向 |
 | storage.py / controller.py | 匿名过滤、预算/批次预留、审计编号、开关/调度/检测 |
+| tests/test_history_deletion.py / tests/test_manual_resources.py | 稳定记录迁移与事务删除、账本保留、手册资源和离线路由 |
 | accounting.py | 请求证据归属、官方登录/各中转供应商分组契约 |
 | catalog.py | CC Switch/Codex++ 目录读取，配置不当作历史消费 |
 | observer.py / usage_worker.py | 固定离线子进程，只读 JSONL 输出匿名总量和活动线索 |
@@ -32,6 +37,8 @@
 ## 接入契约 v2（兼容读取v1）
 
 GET 随机会话路径的 `assessment` 对应 `Auditor.snapshot()`，返回匿名 schema v2 检测快照。`usage` 对应 `Auditor.usage_snapshot()`，返回独立用量快照。每结果含任务版本、合成种子和题数、证据等级及四维结果。POST estimate/run/cancel 提供预估、队列和取消。GET report 返回无脚本及远程资源的匿名 HTML。
+
+能力考试复用预估与运行路由，模式为 `capability_exam`。预估接收题量和 `comparison`，返回确认用的 `exam_plan_id`，运行时需回传确认凭据。匿名 v2 的可选 `exam` 对象包含对照方式、交卷状态、两侧与分项统计。详见[考试接口](docs/EXTENDING.md#capability-exam--能力考试)。
 
 桌面 state 另附非敏感 desktop 布尔能力标志（匿名持久导出过滤掉该 UI 字段）。POST desktop/catalog、desktop/observe、desktop/export、desktop/notifications、desktop/notify 仅在桌面宿主启用，沿用同源头/随机路径校验；没有传回私人路径的接口。浏览器模式这些路由返回404。桌面匿名数据库位于 `%LOCALAPPDATA%/Relay-Auditor`；导出只写其 exports 子目录。
 

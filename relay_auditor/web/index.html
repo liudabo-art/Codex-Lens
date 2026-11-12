@@ -18,6 +18,7 @@
       <a href="#history"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg>检测历史</a>
       <a href="#usage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M6 19V12h3v7m2 0V8h3v11m2 0V5h3v14"/></svg>用量</a>
       <a href="#settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M8 4v4m8 2v4m-6 2v4"/></svg>设置</a>
+      <a href="#manual"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h12a3 3 0 0 1 3 3v15H7a3 3 0 0 1-3-3zm0 14h15M8 7h7M8 11h7"/></svg>操作手册</a>
     </nav>
     <div class="sidebar-bottom">
       <a class="sidebar-help" href="#method">如何理解结果</a>
@@ -79,9 +80,12 @@
     </section>
     <section id="history" class="panel">
       <div class="section-title"><h2>最近检测历史</h2><div class="actions"><select id="exportFormat" aria-label="导出格式"><option value="json">JSON 统计</option><option value="html">HTML 可读报告</option></select><button id="export">导出匿名报告</button></div></div>
+      <label class="history-filter">检查类型<select id="historyFilter"><option value="all">全部检查</option><option value="routine">巡检与其他检查</option><option value="exam120">能力考试 · 120 题标准卷</option><option value="exam180">能力考试 · 180 题加长卷</option></select></label>
+      <div class="actions history-actions"><span id="historyCount" class="muted"></span><button id="deleteSelectedHistory" type="button" disabled>删除所选</button><button id="clearHistory" type="button" disabled>清空全部历史</button></div>
       <details><summary>异常与中断时间线</summary><p class="muted">这里记录异常线索、失败和用户取消。</p><ol id="anomalyRows"></ol></details>
-      <div class="table-wrap"><table><thead><tr><th>时间</th><th>渠道 / 模型</th><th>检查类型</th><th>身份或行为</th><th>能力</th><th>运行状态</th><th>本轮报告</th></tr></thead><tbody id="historyRows"><tr><td colspan="7">暂无检测记录</td></tr></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th><input id="selectAllHistory" type="checkbox" aria-label="选择当前列表全部历史"></th><th>时间</th><th>渠道 / 模型</th><th>检查类型</th><th>身份或行为</th><th>能力</th><th>运行状态</th><th>本轮报告</th></tr></thead><tbody id="historyRows"><tr><td colspan="8">暂无检测记录</td></tr></tbody></table></div>
     </section>
+    <section id="manual" class="panel manual-panel"><div class="section-title"><h2>操作手册</h2><a href="#monitor">返回检测</a></div><p id="manualStatus" class="muted">正在读取离线图文手册…</p><nav id="manualContents" aria-label="手册目录"></nav><div id="manualChapters"></div></section>
     <section id="method" class="panel"><h2>选择适合的检测</h2><div class="method-grid"><div><h3>基础体检：无需官方 Key</h3><p>质量任务覆盖约束、代码追踪、错误修复、结构输出及虚拟工具参数。长上下文和推理档位可以单独测；结果说明这些题上的表现。</p></div><div><h3>官方对照：比较更有依据</h3><p>增强配对评测默认 40 对题。官方指纹登记与行为审计另外运行。只有匹配条件才作比较；少量样本与格式失败保留无法判断。</p></div><div><h3>长期巡检：由你开启</h3><p>周期检测按该目标的间隔和活跃条件运行，并共用每日检测预算。延迟和推理 token 数可用于排查问题，判断质量差距需要同题对照。</p></div></div></section>
     <footer>独立运行中的 Token Monitor 子项目 · 统计留在本机 · 主项目尚未接入</footer>
   </main>
@@ -118,10 +122,35 @@
   <p class="muted">仅发送合成题。实际费用以供应商账单为准。所有结论属实验性。</p>
   <div class="actions"><button id="cancelAudit" value="cancel" formnovalidate>取消</button><button id="confirmAudit" value="start" class="primary">加入检测队列</button></div>
 </form></dialog>
+<dialog id="examDialog" aria-labelledby="examTitle">
+  <form id="examForm">
+    <h2 id="examTitle">能力考试</h2>
+    <p>基础、进阶、挑战三档混合出题，全部交卷后给出总分和分项成绩。</p>
+    <div class="form-grid">
+      <label>试卷<select id="examSamples" autofocus><option value="120">标准卷 · 120 题</option><option value="180">加长卷 · 180 题</option></select></label>
+      <label>对照方式<select id="examComparison"><option value="relay_only">只考中转</option><option value="paired">官方同题对照</option></select></label>
+    </div>
+    <p id="examSettings" class="exam-settings"></p>
+    <p id="examEstimate" class="notice" role="status"></p>
+    <button id="retryExamEstimate" type="button" hidden>重新估算</button>
+    <fieldset id="examBudgetFields" class="exam-budget" hidden disabled>
+      <legend>调整每日检测预算</legend>
+      <p id="examBudgetShortfall" class="muted"></p>
+      <div class="form-grid">
+        <label>每日请求上限<input id="examRequestLimit" type="number" min="1" max="100000" required></label>
+        <label>每日 token 估算预算<input id="examTokenLimit" type="number" min="1" max="10000000000" required></label>
+      </div>
+      <button id="applyExamBudget" type="button">更新预算并重新估算</button>
+    </fieldset>
+    <p class="muted">估算额度包含重试，实际费用以供应商账单为准。按北京时间记账，跨日会中断。本轮成绩标为实验性。</p>
+    <div class="actions"><button id="cancelExam" type="button">取消</button><button id="confirmExam" class="primary" type="submit" disabled>确认并加入考试队列</button></div>
+  </form>
+</dialog>
 <dialog id="historyReportDialog" aria-labelledby="historyReportTitle">
   <form method="dialog" class="history-report-header"><h2 id="historyReportTitle">历史报告</h2><button value="close" autofocus>关闭</button></form>
   <div id="historyReportContent" class="shared-report"></div>
 </dialog>
+<dialog id="historyDeleteDialog" aria-labelledby="historyDeleteTitle"><form id="historyDeleteForm"><h2 id="historyDeleteTitle">删除检测记录</h2><p id="historyDeleteSummary"></p><p>删除后不可撤销。已发生的用量、预算计数、目标设置和已登记参考会保留。请先导出需要的报告。</p><p id="historyDeleteFeedback" class="dialog-feedback" role="status"></p><div class="actions"><button id="cancelHistoryDelete" type="button">取消</button><button id="confirmHistoryDelete" type="submit">确认删除</button></div></form></dialog>
 <dialog id="assessmentFailureDialog" aria-labelledby="assessmentFailureTitle">
   <form method="dialog">
     <h2 id="assessmentFailureTitle">本轮检测已中止</h2>

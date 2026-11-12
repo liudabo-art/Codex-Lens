@@ -71,6 +71,47 @@ class TargetOptionTests(unittest.TestCase):
             self.service.update_target(alias,display_name='changed',model='https://private.invalid',reasoning_effort='high')
         self.assertEqual(self.service.monitors[alias].target.model,'gpt-test')
 
+    def test_output_limit_can_change_and_omitted_limit_is_preserved(self):
+        alias = self.service.configure('https://relay.invalid/v1', 'synthetic', 'gpt-test',
+                                       Protocol(max_output_tokens=4096), reference_key='synthetic-reference')
+        self.service.update_target(alias, display_name='Synthetic', model='gpt-test', max_output_tokens=8192)
+        monitor = self.service.monitors[alias]
+        self.assertEqual(monitor.target.protocol.max_output_tokens, 8192)
+        self.assertEqual(monitor.reference.protocol.max_output_tokens, 8192)
+        self.assertEqual(self.service.snapshot()['targets'][0]['max_output_tokens'], 8192)
+        self.service.update_target(alias, display_name='Renamed', model='gpt-test')
+        self.assertEqual(monitor.target.protocol.max_output_tokens, 8192)
+        for invalid in (0, 127, 16385, True, 4096.5):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.service.update_target(alias, display_name='Invalid', model='gpt-test', max_output_tokens=invalid)
+        self.assertEqual(monitor.target.protocol.max_output_tokens, 8192)
+
+    def test_http_target_options_updates_output_limit(self):
+        from relay_auditor.server import make_server
+        alias = self.service.configure('https://relay.invalid/v1', 'synthetic', 'gpt-test')
+        server = make_server(self.service)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
+        origin = f'http://127.0.0.1:{server.server_port}'
+        conn = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=5)
+        conn.request('POST', server.session_path+'target_options', json.dumps({
+            'source_alias':alias, 'display_name':'Synthetic', 'model':'gpt-test', 'max_output_tokens':8192}),
+            {'Origin':origin, 'Content-Type':'application/json', 'X-Relay-Request':'1'})
+        response = conn.getresponse(); response.read(); conn.close()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(self.service.monitors[alias].target.protocol.max_output_tokens, 8192)
+
+    def test_output_limit_is_restored_from_owned_target_settings(self):
+        from relay_auditor.profiles import Profiles
+        from test_sdk_exports import FakeVault
+        profiles = Profiles(self.root/'profiles', vault=FakeVault())
+        service = Service(self.store, client_factory=FakeClient, profiles=profiles)
+        alias = service.configure('https://relay.invalid/v1', 'synthetic', 'gpt-test')
+        service.update_target(alias, display_name='Synthetic', model='gpt-test', max_output_tokens=8192)
+        restored = Service(self.store, client_factory=FakeClient, profiles=profiles)
+        self.assertEqual(restored.monitors[alias].target.protocol.max_output_tokens, 8192)
+        self.assertFalse(restored.monitors[alias].credential_ready)
+
     def test_default_reference_follows_changed_model_but_explicit_reference_is_preserved(self):
         for explicit in (None,'reference-fixed'):
             alias = self.service.configure('https://relay.example/v1','key','gpt-test',reference_key='reference-key',reference_model=explicit)

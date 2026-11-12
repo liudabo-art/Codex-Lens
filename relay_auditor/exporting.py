@@ -32,7 +32,7 @@ def html_report(snapshot):
                      + paragraph('证据：' + row['evidence_level'] + ' · experimental')
                      + '</details></article>')
         values = (row.get('evaluated_at', ''), row.get('source_alias', ''), row.get('model', ''),
-                  row.get('mode', ''), row.get('status', ''))
+                  brief.get('task_label', row.get('mode', '')), row.get('status', ''))
         rows.append('<tr>' + ''.join('<td>' + escape(str(value)) + '</td>' for value in values)
                     + '<td><a href="#' + anchor + '">查看本轮报告</a></td></tr>')
     return ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'

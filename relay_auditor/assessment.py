@@ -4,13 +4,14 @@ import re
 import secrets
 
 from .families import family_for, reference_issue, PROFILES, GENERIC
+from .grading import grade_answer, item_result
 from .planning import assessment_plan, ASSESSMENT_MAX_RETRIES, ASSESSMENT_PROMPT_BYTES
 from .statistics import MINIMUM_PAIRED_SAMPLES, compare_paired, spending_alpha
 from .storage import BudgetExceeded
 from .suites import quality_case
 from .transport import EndpointError
 
-VERSION = 'assessment-v3'
+VERSION = 'assessment-v4'
 RESPONSE_ISSUES = frozenset(('output_limit', 'stream_interrupted', 'empty_answer', 'response_filtered', 'incomplete_output'))
 RETRYABLE = frozenset(('network_error', 'stream_interrupted'))
 STOP_REASONS = RETRYABLE | {'authentication_failed', 'unsupported_parameters', 'output_limit'}
@@ -56,6 +57,8 @@ def run_assessment(service, monitor, samples, result, *, seed=None, recover=Fals
         for source in ((monitor.target.role, 'reference') if paired else (monitor.target.role,))
     }
     target_counts = counts[monitor.target.role]
+    items = {(case.seed, source): item_result(case, difficulty, index, source)
+             for index, (case, difficulty) in enumerate(cases, 1) for source in counts}
     result.update(
         suite_version=VERSION, model_family=family_for(monitor.target.model), task_seed=seed, task_count=len(cases),
         sample_count=plan['required_requests'], reference_state=plan['reference_state'],
@@ -63,8 +66,10 @@ def run_assessment(service, monitor, samples, result, *, seed=None, recover=Fals
         capability_attempted=0, capability_completed=0, capability_valid=0, capability_correct=0,
         response_count=0, network_failures=0, invalid_responses=0, retry_requests=0,
         identity_state='not_tested', assessment_tasks=[], assessment_counts=list(counts.values()), response_issues=[],
+        item_results=list(items.values()), grading_issues=[],
     )
     diagnostics = Counter()
+    grading_diagnostics = Counter()
     task_rows = {}
     pairs = []
     audit_index = alpha = None
@@ -77,6 +82,7 @@ def run_assessment(service, monitor, samples, result, *, seed=None, recover=Fals
 
     def request(case, reference, side, row):
         previous_issue = None
+        item = items[case.seed, side['source_kind']]
         try:
             for attempt in range(max_retries + 1):
                 completed_before = service.progress.get('completed', 0)
@@ -92,6 +98,7 @@ def run_assessment(service, monitor, samples, result, *, seed=None, recover=Fals
                     raise
                 finally:
                     sent = service.progress.get('completed', 0) > completed_before
+                    item['attempts'] += int(sent)
                     if sent and attempt:
                         result['retry_requests'] += 1
                         side['retry_requests'] = side.get('retry_requests', 0) + 1
@@ -115,8 +122,10 @@ def run_assessment(service, monitor, samples, result, *, seed=None, recover=Fals
         if reference and result.get('reference_error'):
             return None
         side = counts['reference'] if reference else target_counts
+        item = items[case.seed, side['source_kind']]
         response, error_code, sent = request(case, reference, side, row)
         if response is None:
+            item['error_code'] = error_code
             if sent:
                 result['network_failures'] += 1
             diagnostics[(reference, error_code)] += 1
@@ -134,13 +143,10 @@ def run_assessment(service, monitor, samples, result, *, seed=None, recover=Fals
         elif not response.text.strip():
             issue = 'empty_answer'
         if not issue:
-            fence = JSON_FENCE.fullmatch(response.text.strip())
-            try:
-                grade = case.grade(fence[1] if fence else response.text)
-            except RecursionError:
-                grade = None
-            if grade and grade['valid']:
-                if fence:
+            grade = grade_answer(case, response.text)
+            item.update(grade)
+            if grade['format_state'] != 'answer_format':
+                if grade['format_state'] == 'recovered_format':
                     diagnostics[(reference, 'recovered_format')] += 1
                 side['valid'] += 1
                 side['correct'] += grade['correct']
@@ -149,6 +155,8 @@ def run_assessment(service, monitor, samples, result, *, seed=None, recover=Fals
                     row['correct'] += grade['correct']
                 return grade['correct']
             issue = 'answer_format'
+            grading_diagnostics[side['source_kind'], grade['grading_issue']] += 1
+        item['error_code'] = issue
         diagnostics[(reference, issue)] += 1
         result['invalid_responses'] += 1
         if recover and issue in STOP_REASONS:
@@ -199,5 +207,9 @@ def run_assessment(service, monitor, samples, result, *, seed=None, recover=Fals
         result['response_issues'] = [
             {'source_kind': 'reference' if reference else monitor.target.role, 'error_code': issue, 'sample_count': count}
             for (reference, issue), count in diagnostics.items()
+        ]
+        result['grading_issues'] = [
+            {'source_kind': source, 'grading_issue': issue, 'sample_count': count}
+            for (source, issue), count in grading_diagnostics.items()
         ]
         service.store.release_batch(batch)

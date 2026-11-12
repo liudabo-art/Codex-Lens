@@ -1,6 +1,6 @@
-# 中转模型质量检测 · Relay Auditor
+# Codex Lens · 中转模型质量检测
 
-Codex Lens 是在本仓库独立开发的实验性中转检测工具，源自 Token Usage Monitor 检测模块，保留匿名 v2 契约供后续接入。桌面端与 CLI 共用 Python 核心，检测器的 `VERSION` 定义自己的发布候选版本。
+Codex Lens 是在本仓库独立开发的实验性中转检测工具，源自 Token Usage Monitor 检测模块。**0.2.0** 使用 `assessment-v4`、`exam-v2` 和匿名 v2 报告契约。桌面端与 CLI 共用 Python 核心，`VERSION` 定义安装包版本。[0.2.0 版本说明](../docs/RELEASE_NOTES.md)
 
 回答三个问题：任务表现是否符合预期、相对可信参考或历史是否变化、证据和复核成本如何。没有真假总分或公开供应商排行榜。**当前没有完成真实校准的型号。**
 
@@ -16,9 +16,25 @@ Windows、macOS 和 Linux 的包格式和依赖见[安装与兼容性](../docs/I
 
 标准文本 API 内置 16 个入口，覆盖 OpenAI、Anthropic、Google、DeepSeek、Qwen（北京、新加坡、美国弗吉尼亚、中国香港）、GLM、Kimi、MiniMax（各分中国站和国际站）、xAI 和 Mistral。能只凭 Key 查目录时，保存阶段先核对型号。Qwen 北京和美国弗吉尼亚、GLM 及 MiniMax 使用版本化官方型号表，Key 待首次检测验证。能查到型号与有权调用是两个条件。保存时只匹配，点击「开始检测」才发题。
 
-声明型号独立于请求协议，决定采用 GPT/Codex、DeepSeek、Claude 或 Gemini 的哪套测试。评估 v3 为 GPT/Codex 加入多分支代码与边界修复题，为 DeepSeek 加入多步约束题。其他家族沿用现有题型。完整回答能提取 JSON 时，答题正确性与格式遵循分开记录。自动配对要求官方精确型号 ID 或已核实别名、可比的请求设置与对应官方供应商。换供应商或地区需要该站点的 Key，旧参考 Key 仍绑定原入口。专项行为证据处于实验阶段，型号结论待校准。DeepSeek 官方 API 直连用量单列，官方登录只做用量统计，周期检测由用户主动开启。
+声明型号独立于请求协议，决定采用 GPT/Codex、DeepSeek、Claude 或 Gemini 的哪套测试。评估 `assessment-v4` 为 GPT/Codex 加入多分支代码与边界修复题，为 DeepSeek 加入多步约束题。其他家族沿用现有题型。完整回答能提取 JSON 时，答题正确性与格式遵循分开记录。自动配对要求官方精确型号 ID 或已核实别名、可比的请求设置与对应官方供应商。换供应商或地区需要该站点的 Key，旧参考 Key 仍绑定原入口。专项行为证据处于实验阶段，型号结论待校准。DeepSeek 官方 API 直连用量单列，官方登录只做用量统计，周期检测由用户主动开启。
 
 目标名称、地址、模型和设置保存在专用**私人配置文件**。中转 Key 和官方参考 Key 默认只留内存。Windows 可分别选择存入该目标专用凭据项，macOS 和 Linux 使用会话 Key。重启后，未保存的 Key 需分别补填，周期和排队任务关闭。损坏配置会保留。自定义名称留在私人设置，原供应商文件只读。
+
+## 能力考试
+
+0.2.0 为 GPT/Codex 和 DeepSeek 中转提供手动「能力考试」。可选 120 题标准卷和 180 题加长卷，覆盖五类能力和三档难度。配置匹配的同型号官方参考后，可让双方做同一批题。所有必考侧全部交卷后才给出总分。未交卷保留进度和用量，完整作答的格式失分与服务故障分开展示。
+
+`exam-v2` 与 `assessment-v4` 共用有界的确定性评分器，可恢复正文中唯一的完整 JSON 对象或数组，并记录细分格式原因；多个答案或格式损坏会拒绝评分。考试每类能力与难度包含四种解题结构，每 60 题均衡抽取，生成答案由独立参考程序验证。匿名 `item_results` 保留题型、模板、难度、种子、答题侧、评分标记和尝试次数，不含题目正文、原始回答、凭据或私人目标信息。旧成绩继续按原题集版本和原分数展示，不使用新题集重算。
+
+确认页会显示型号、推理设置、基础请求和重试上限。连接失败、断流或空回答只在失败侧重试原题，每题最多两次，每侧另受全卷题量五分之一的额度约束。单测最多预留 144 或 216 次请求，官方对照最多预留 288 或 432 次请求。需要提高日预算时由用户确认。成绩为实验性结果，适用范围限于本场题型和请求设置。[考试方法](../docs/METHODS.md#capability-exam--能力考试)
+
+已有目标可编辑输出 token 上限，考试预览会显示双方上限。OpenAI 兼容接口把完整 JSON 错标为流式时也能读取，真正中断的流仍会标记未完成。
+
+## 历史与离线帮助
+
+历史记录使用稳定的本地 UUID。可删除单条、勾选记录或全部历史，清空包含最近 200 条之外的记录。删除同步更新当前卡片及复核关联，保留实际用量、每日预算、目标设置和已登记参考。运行或排队期间需等待任务结束再删历史。删除目标是前文所述的另一项操作。
+
+侧栏「操作手册」提供 13 章离线教学与 12 张实际界面合成截图。随包手册与 [Markdown 图文手册](../docs/USER_MANUAL.md) 使用同一内容源。
 
 ## 源码、CLI与SDK
 
@@ -33,13 +49,14 @@ python -I -S -B run.py quality
 python -I -S -B run.py profiles
 python -I -S -B run.py estimate --target relay-1 --mode quality --samples 10
 python -I -S -B run.py quality --target relay-1 --samples 10 --seed 42
+python -I -S -B run.py capability-exam --target relay-1 --samples 120 --comparison relay_only
 python -I -S -B run.py quality-audit --target relay-1 --samples 40 --request-limit 1000 --token-limit 3000000
 python -I -S -B run.py context --target relay-1 --samples 3
 python -I -S -B run.py reasoning --target relay-1 --samples 5
 python -I -S -B run.py history
 ```
 
-`demo`离线使用已知答案模拟，明确标演示，临时数据退出删除，不代表真实模型成绩。CLI地址/Key隐藏输入，不接受命令行秘密；不能安全隐藏时拒绝回退。源码桌面需隔离环境安装`requirements-desktop.txt`，运行`python -B desktop.py`（勿加隐藏依赖的`-S`）。Windows构建用固定`requirements-build.txt`及`python -B build_tools/build.py`；新候选冒烟通过才切换启动器，不覆盖运行中的旧程序。运行时不下载依赖。见[Python接口与贡献指南](../docs/EXTENDING.md)。
+`demo`离线使用已知答案模拟，明确标演示，临时数据退出删除，不代表真实模型成绩。上面的 `capability-exam` 命令只预览已有目标的方案；实际开考需 `--confirm-exam` 和显式配置的足够预算。CLI地址/Key隐藏输入，不接受命令行秘密；不能安全隐藏时拒绝回退。`--max-output-tokens` 可显式修改输出上限。源码桌面需隔离环境安装`requirements-desktop.txt`，运行`python -B desktop.py`（勿加隐藏依赖的`-S`）。Windows构建用固定`requirements-build.txt`及`python -B build_tools/build.py`；新候选冒烟通过才切换启动器，不覆盖运行中的旧程序。运行时不下载依赖。见[Python接口与贡献指南](../docs/EXTENDING.md)。
 
 ## 检测任务、协议与证据
 
@@ -71,7 +88,7 @@ python -I -S -B run.py history
 
 CC Switch支持已验证Codex供应商结构，只打开含WAL/SHM的临时SQLite副本；Codex++支持已验证relayProfiles/configContents结构，其他分支/版本不保证。自动读取只尝试固定文档位置，自定义用手选。不执行供应商切换、钩子或登录刷新，原供应商名称/ID不显示。
 
-源码输出在忽略的`.relay-data/`，桌面在当前用户本地应用数据`Relay-Auditor`目录，不自动迁移旧历史。匿名`audit.sqlite`与私人`private/settings.json`、可选精确自有凭据项分开。私人配置/备份勿分享。导出只写专用exports目录，不覆盖原文件，排除私人名称、地址、Key和原始业务内容。匿名统计仍属私人本地信息，不自动视为可公开。
+CLI 默认使用仓库中被忽略的 `.relay-data/`。同一平台的源码桌面与打包桌面共用当前用户的应用数据 `Relay-Auditor` 目录，不自动把 CLI 历史迁入。匿名`audit.sqlite`与私人`private/settings.json`、可选精确自有凭据项分开。私人配置/备份勿分享。导出只写专用exports目录，不覆盖原文件，排除私人名称、地址、Key和原始业务内容。匿名统计仍属私人本地信息，不自动视为可公开。
 
 专用中转 Key 和合成题只到用户选择的 HTTPS 中转；官方参考 Key 只发往选定的固定官方站点，用于查询型号或发送对照题。不读官方登录 token，不继承代理、不重定向、不遥测、不加载远程页面资源、不上传私人数据。保留随机路径、Host/Origin 校验和 WebView 资源约束；退出不能撤回已发请求。主采集器保持离线，官方同步独立运行。
 
@@ -82,6 +99,8 @@ python -B -m unittest discover -s tests -v
 node tests/test_dashboard.cjs
 ```
 
-默认Windows/Linux CI只用合成数据。真实API校准独立授权预算，不混入普通测试。冻结研究含生成器/传输代码摘要、独立先导/新日期、正常/替换/档位/截断/混合控制与精确区间。误报上界≤5%、完整替换检出下界≥80%的目标**尚未实测**；统计通过也只成为复核候选，不自动升级名单。未打包非商业许可代码/数据。见[实施记录与未完成门槛](../docs/DEVELOPMENT_PLAN.md)。
+CI 和本地测试仅使用合成数据。原生安装包矩阵覆盖 Windows x64、macOS x64/arm64 和 Linux x64/arm64；每次构建结果以工作流及 Release 资产为准。本地 Windows 便携候选已有构建、固定 worker 和资源冒烟记录，完整原生 GUI 验收仍待完成。[验证记录](../docs/VERIFICATION.md)
 
-M1真实研究结果、M2完整Windows原生端到端验收、各家族校准、管理工具账本及主监视器集成仍未完成；浏览器和合成检查不关闭这些门槛。本次不提交、合并、签名或公开发布。
+真实 API 校准需独立授权预算，不混入普通测试。冻结研究与离线模拟支持 `assessment-v4`、`exam-v2`、GPT/Codex 和 DeepSeek，记录完整请求及重试计划、先导模板统计和验证区间。这些是校准工具，不是真实校准结果。误报上界≤5%、完整替换检出下界≥80%的目标**尚未实测**；统计通过也只成为复核候选，不自动升级名单。未打包非商业许可代码/数据。
+
+M1真实研究结果、M2完整Windows原生端到端验收、各家族校准、管理工具账本及主监视器集成仍未完成；浏览器和合成检查不关闭这些门槛。公开状态与发布日期以对应 GitHub Release 为准。[实施记录与未完成门槛](../docs/DEVELOPMENT_PLAN.md)

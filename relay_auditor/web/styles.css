@@ -127,7 +127,9 @@ main section[id], #settings { scroll-margin-top: 16px; }
 }
 .target-picker, .model-field { flex: 1 1 190px; min-width: 0; max-width: 290px; }
 .target-picker select, .model-field select { background: var(--panel); font-weight: 550; }
-.start-row .start-assessment { margin-inline-start: auto; padding: 10px 20px; }
+.start-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-inline-start: auto; }
+.start-actions button { padding: 10px 16px; white-space: nowrap; }
+.start-exam { color: var(--accent); border-color: var(--accent); font-weight: 650; }
 .match-field { display: flex; flex: 0 1 auto; align-items: center; gap: 8px; min-width: 0; }
 .toolbar-label { font-size: 13px; font-weight: 550; white-space: nowrap; }
 .match-hint { max-width: 100%; padding: 4px 8px; border-radius: 6px; background: #e7edf6; overflow-wrap: anywhere; }
@@ -219,7 +221,7 @@ main section[id], #settings { scroll-margin-top: 16px; }
 @media (max-width: 980px) {
   .report-heading:has(.paired-scores:not([hidden])) { grid-template-columns: 1fr; gap: 15px; }
   .paired-scores { border-inline-start: 0; border-top: 1px solid var(--line); padding: 13px 0 0; }
-  .start-row .start-assessment { margin-inline-start: 0; }
+  .start-actions { margin-inline-start: 0; }
 }
 @media (max-width: 720px) {
   .sidebar { border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 14px; }
@@ -232,7 +234,7 @@ main section[id], #settings { scroll-margin-top: 16px; }
   .target-picker, .model-field { flex-basis: 100%; max-width: none; }
   .target-picker, .model-field > label { display: grid; grid-template-columns: 7ch minmax(0, 1fr); }
   .match-field { flex-basis: 100%; }
-  .start-row .start-assessment { margin-inline-start: auto; }
+  .start-actions { margin-inline-start: auto; }
   .report-summary { padding: 16px; }
   .skill-head, .skill-line { gap: 8px; font-size: 12px; padding-inline: 0; }
   .skill-score { gap: 6px; }
@@ -252,3 +254,20 @@ main section[id], #settings { scroll-margin-top: 16px; }
 .history-report-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 18px; }
 .history-report-header h2 { margin: 0; }
 #anomalyRows button { margin-left: 10px; }
+.history-filter { width: min(100%, 260px); margin-bottom: 12px; }
+.exam-settings { overflow-wrap: anywhere; font-weight: 600; }
+.exam-settings:empty { display: none; }
+.exam-budget { min-width: 0; margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.exam-budget legend { padding-inline: 4px; font-weight: 650; }
+.exam-budget .form-grid { margin: 10px 0; }
+/* Offline illustrated guide and completed-record controls. */
+.manual-panel details{margin:14px 0;padding:14px;border:1px solid var(--border,#dce5e9);border-radius:10px}
+.manual-panel summary{font-weight:700;cursor:pointer}
+.manual-panel li{margin:10px 0;line-height:1.7}
+#manualContents{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:18px 0}
+.manual-panel figure{margin:18px 0}
+.manual-panel img{display:block;width:100%;height:auto;border:1px solid #dce5e9;border-radius:8px}
+.manual-panel figcaption{margin:8px 0;color:#526773;line-height:1.6}
+.manual-expected{background:#edf6f6;padding:12px;border-radius:8px}
+.history-actions{margin:12px 0}
+#historyRows td:last-child button{margin:3px}

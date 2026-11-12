@@ -1,11 +1,59 @@
 """Conservative preflight estimates, never an asserted provider billing ceiling."""
 import math
 from .suites import SUITES
-from .families import family_for, matching_reference, reference_state
+from .families import family_for, matching_reference, reference_state, usable_reference
+from .exam import EXAM_FAMILIES, EXAM_MAX_PROMPT_BYTES, EXAM_MODE, EXAM_SIZES
 
-MODES=('screen','quality','quality_audit','baseline','identity_audit','capability_audit','context','reasoning','assessment')
+MODES=('screen','quality','quality_audit','baseline','identity_audit','capability_audit','context','reasoning','assessment',EXAM_MODE)
 ASSESSMENT_PROMPT_BYTES = 1536
 ASSESSMENT_MAX_RETRIES = 2
+
+
+def exam_available(monitor):
+    return monitor.target.role == 'relay' and family_for(monitor.target.model) in EXAM_FAMILIES
+
+
+def exam_plan(monitor, samples, comparison, budget):
+    count = EXAM_SIZES[0] if samples is None else samples
+    if type(count) is not int or count not in EXAM_SIZES:
+        raise ValueError('invalid_samples')
+    if not exam_available(monitor):
+        raise ValueError('exam_unsupported')
+    reference = usable_reference(monitor)
+    if comparison is None:
+        comparison = 'paired' if reference else 'relay_only'
+    if comparison not in ('relay_only', 'paired'):
+        raise ValueError('exam_changed')
+    paired = comparison == 'paired'
+    reference = reference if paired else None
+    requests = count * (2 if paired else 1)
+    retries = requests // 5
+    output_bound = monitor.target.protocol.max_output_tokens
+    if reference:
+        output_bound = max(output_bound, reference.protocol.max_output_tokens)
+    per_call = EXAM_MAX_PROMPT_BYTES + output_bound + 256
+    tokens = (requests + retries) * per_call
+    minimum_requests = budget['requests'] + budget['held_requests'] + requests + retries
+    minimum_tokens = budget['estimated_tokens'] + budget['held_tokens'] + tokens
+    status = 'ok'
+    if not monitor.credential_ready:
+        status = 'credential_required'
+    elif paired and reference is None:
+        status = 'reference_required'
+    elif minimum_requests > budget['request_limit'] or minimum_tokens > budget['token_limit']:
+        status = 'budget_exhausted'
+    return {
+        'mode': EXAM_MODE, 'comparison': comparison, 'sample_count': count, 'status': status,
+        'target_requests': count, 'reference_requests': count if paired else 0,
+        'required_requests': requests, 'max_retry_requests': retries, 'max_requests': requests + retries,
+        'per_call': per_call, 'estimated_tokens': tokens, 'estimated_cost': None,
+        'minimum_request_limit': minimum_requests, 'minimum_token_limit': minimum_tokens,
+        'model': monitor.target.model, 'reasoning_effort': monitor.target.protocol.reasoning_effort,
+        'max_output_tokens': monitor.target.protocol.max_output_tokens,
+        'reference_model': reference.model if reference else None,
+        'reference_reasoning_effort': reference.protocol.reasoning_effort if reference else None,
+        'reference_max_output_tokens': reference.protocol.max_output_tokens if reference else None,
+    }
 
 
 def assessment_plan(monitor, samples=None):
@@ -29,7 +77,7 @@ def assessment_plan(monitor, samples=None):
 
 
 def estimate(mode,samples,protocol,has_reference,prices=None):
-    if mode not in MODES or mode == 'assessment': raise ValueError('invalid_mode')
+    if mode not in MODES or mode in ('assessment', EXAM_MODE): raise ValueError('invalid_mode')
     default={'screen':3,'quality':10,'quality_audit':40,'baseline':12,'identity_audit':50,'capability_audit':40,'context':3,'reasoning':5}[mode]
     n=default if samples is None else samples
     if type(n) is not int or not 1<=n<=200: raise ValueError('invalid_samples')
