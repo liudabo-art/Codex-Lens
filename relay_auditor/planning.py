@@ -3,6 +3,8 @@ import math
 from .suites import SUITES
 from .families import family_for, matching_reference, reference_state, usable_reference
 from .exam import EXAM_FAMILIES, EXAM_MAX_PROMPT_BYTES, EXAM_MODE, EXAM_SIZES
+from .exam_registry import get_exam_spec
+from .model_capabilities import supports_parameters
 
 MODES=('screen','quality','quality_audit','baseline','identity_audit','capability_audit','context','reasoning','assessment',EXAM_MODE)
 ASSESSMENT_PROMPT_BYTES = 1536
@@ -10,15 +12,26 @@ ASSESSMENT_MAX_RETRIES = 2
 
 
 def exam_available(monitor):
-    return monitor.target.role == 'relay' and family_for(monitor.target.model) in EXAM_FAMILIES
+    if monitor.target.role != 'relay':
+        return False
+    try:
+        get_exam_spec(family_for(monitor.target.model))
+        return True
+    except ValueError:
+        return False
 
 
-def exam_plan(monitor, samples, comparison, budget):
-    count = EXAM_SIZES[0] if samples is None else samples
-    if type(count) is not int or count not in EXAM_SIZES:
-        raise ValueError('invalid_samples')
+def exam_plan(monitor, samples, comparison, budget, *, suite_version=None):
     if not exam_available(monitor):
         raise ValueError('exam_unsupported')
+    family = family_for(monitor.target.model)
+    try:
+        spec = get_exam_spec(family, suite_version)
+    except ValueError:
+        raise ValueError('exam_unsupported') from None
+    count = spec.sizes[0] if samples is None else samples
+    if type(count) is not int or count not in spec.sizes:
+        raise ValueError('invalid_samples')
     reference = usable_reference(monitor)
     if comparison is None:
         comparison = 'paired' if reference else 'relay_only'
@@ -27,23 +40,28 @@ def exam_plan(monitor, samples, comparison, budget):
     paired = comparison == 'paired'
     reference = reference if paired else None
     requests = count * (2 if paired else 1)
-    retries = requests // 5
+    retries = spec.retry_requests_per_side(count) * (2 if paired else 1)
     output_bound = monitor.target.protocol.max_output_tokens
     if reference:
         output_bound = max(output_bound, reference.protocol.max_output_tokens)
-    per_call = EXAM_MAX_PROMPT_BYTES + output_bound + 256
+    per_call = spec.max_prompt_bytes + output_bound + 256
     tokens = (requests + retries) * per_call
     minimum_requests = budget['requests'] + budget['held_requests'] + requests + retries
     minimum_tokens = budget['estimated_tokens'] + budget['held_tokens'] + tokens
     status = 'ok'
     if not monitor.credential_ready:
         status = 'credential_required'
+    elif not supports_parameters(monitor.target.model, monitor.target.protocol):
+        status = 'unsupported_parameters'
     elif paired and reference is None:
         status = 'reference_required'
     elif minimum_requests > budget['request_limit'] or minimum_tokens > budget['token_limit']:
         status = 'budget_exhausted'
     return {
-        'mode': EXAM_MODE, 'comparison': comparison, 'sample_count': count, 'status': status,
+        'mode': EXAM_MODE, 'model_family': family, 'suite_version': spec.version,
+        'paper_spec_id': spec.paper_spec_id,
+        'max_retries_per_item': spec.max_retries_per_item,
+        'comparison': comparison, 'sample_count': count, 'status': status,
         'target_requests': count, 'reference_requests': count if paired else 0,
         'required_requests': requests, 'max_retry_requests': retries, 'max_requests': requests + retries,
         'per_call': per_call, 'estimated_tokens': tokens, 'estimated_cost': None,
@@ -71,7 +89,7 @@ def assessment_plan(monitor, samples=None):
         'target_requests': count, 'reference_requests': reference_requests,
         'max_retry_requests': requests * ASSESSMENT_MAX_RETRIES,
         'estimated_tokens': requests * (ASSESSMENT_PROMPT_BYTES + output_bound + 256),
-        'estimated_cost': None, 'status': 'ok', 'matched_reference': matched,
+        'estimated_cost': None, 'status': 'ok' if supports_parameters(monitor.target.model, monitor.target.protocol) else 'unsupported_parameters', 'matched_reference': matched,
         'reference_state': reference_state(monitor),
     }
 

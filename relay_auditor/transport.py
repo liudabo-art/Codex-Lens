@@ -233,6 +233,9 @@ class APIClient:
         if type(case) not in (ProbeCase, ExamCase) or len(case.prompt) > 262144:
             raise EndpointError('invalid_synthetic_case')
         target, protocol = self.target, self.target.protocol
+        from .model_capabilities import supports_parameters
+        if not supports_parameters(target.model, protocol):
+            raise EndpointError('unsupported_parameters')
         if target.official_preset:
             from .official import compatible_protocols
             if not compatible_protocols(target.official_preset, protocol, protocol, target.model):
@@ -248,13 +251,11 @@ class APIClient:
             route = '/responses'
         elif protocol.wire_api == 'deepseek' or target.role == 'official_api' and protocol.wire_api == 'chat':
             body.update(messages=[case.payload()], max_tokens=protocol.max_output_tokens)
-            effort = protocol.reasoning_effort
-            if effort not in (None, 'none', 'low', 'high', 'max'):
-                raise EndpointError('unsupported_parameters')
-            if effort:
-                body['thinking'] = {'type': 'disabled' if effort == 'none' else 'enabled'}
-                if effort != 'none':
-                    body['reasoning_effort'] = effort
+            from .model_capabilities import deepseek_thinking_options
+            try:
+                body.update(deepseek_thinking_options(target.model, protocol.reasoning_effort))
+            except ValueError:
+                raise EndpointError('unsupported_parameters') from None
             if protocol.stream:
                 body['stream_options'] = {'include_usage': True}
             route = '/chat/completions'

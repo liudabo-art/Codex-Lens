@@ -195,8 +195,12 @@ def _explain_exam(record):
             p, alpha = pair.get('p_value'), pair.get('alpha')
             if pair.get('status') == 'degraded' and gap * 10 >= count and p is not None and alpha is not None and p <= alpha:
                 headline = '本场同条件下，中转表现明显低于官方'
+            elif gap < 0:
+                reference_note += '本场中转答对更多，成绩差异仅适用于本场题目和设置。'
+            elif gap == 0:
+                reference_note += '本场两边成绩相同，型号身份仍待确认。'
             else:
-                reference_note += '本场未达到判定中转明显落后的门槛。'
+                reference_note += '本场观察到成绩差距，未达到判定中转明显落后的证据门槛。'
             details.append(f'同题配对检验 p={p}，本轮阈值 {alpha}，最低判定差距 10 个百分点。')
         for kind, name in EXAM_TASK_LABELS.items():
             if kind in by_task:
@@ -231,7 +235,7 @@ def _explain_exam(record):
                 'output_limit': '检查输出上限和推理档位后重新预览考试。',
                 'reference_required': '重新匹配同型号官方参考后开始新考试。',
                 'exam_changed': '重新预览当前设置和预算后开始新考试。',
-                'exam_unsupported': '选择受支持的 GPT/Codex 或 DeepSeek 中转模型后开始考试。',
+                'exam_unsupported': '选择已提供完整题集的模型，并重新预览考试。',
             }
             next_step = steps.get(error_code, '检查失败侧的连接或接口状态后，重新开始一场完整考试。')
 

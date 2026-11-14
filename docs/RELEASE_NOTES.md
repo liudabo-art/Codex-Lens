@@ -1,49 +1,58 @@
-# Codex Lens 0.2.0 · 实验性桌面预览 / Experimental desktop preview
+# Codex Lens 0.3.0 · 四家完整检测 / Four-family experimental preview
 
-0.2.0 增加完整能力考试、共享评分器、匿名逐题证据、历史删除与离线图文手册。检测结果仍是实验性观察；当前没有完成真实校准的型号。公开状态、发布日期和可用资产以对应 [GitHub Release](https://github.com/liudabo-art/Codex-Lens/releases) 为准。
+0.3.0 补齐 Claude 与 Gemini 的独立 120／180 题考试，完善四家的参数匹配、考试确认和结果反馈，并增加可复算的校准研究证据。OpenAI／Anthropic 并列最高优先。**当前没有完成真实校准的型号，检测结果仍为实验性。** 公开状态、日期和实际可下载文件以 [v0.3.0 Release](https://github.com/liudabo-art/Codex-Lens/releases/tag/v0.3.0) 为准。
 
-Version 0.2.0 adds complete capability exams, shared scoring, anonymous per-item evidence, history deletion and an illustrated offline manual. All findings remain experimental. No model has completed real calibration. The corresponding GitHub Release records publication status, date and available assets.
+Version 0.3.0 adds independent Claude and Gemini exams, strengthens exact-model settings and exam approval, and makes research scores and failures auditable. OpenAI and Anthropic are co-P0. **No model has completed real calibration; findings remain experimental.** The GitHub Release records publication status, date and available assets.
 
 ## 本版变化 / Changes
 
-- **120／180 题能力考试。** GPT/Codex 与 DeepSeek 可选单侧或官方同型号同题对照，覆盖五类能力、三档难度。每个能力与难度组合含四种结构，每 60 题均衡抽取。所有必考侧交卷后才给总分；未交卷保留进度与用量。连接失败、断流或空回答只补原题失败侧，每题最多两次，每侧额外额度为卷长的五分之一。开考前预览并预留基础及重试预算：单侧最多 144／216 次，配对最多 288／432 次。
-- **`exam-v2`／`assessment-v4` 共享评分。** 有界评分器从完整回复中恢复唯一 JSON 答案，区分内容答错、格式偏差与无法解析。多个候选、重复字段、超限或损坏输入有独立诊断。独立参考算法验证生成题的标准答案。匿名 `item_results` 仅含题型、模板、难度、种子、答题侧、评分标记和尝试次数，不包含题目正文、原始回答、凭据或私人目标信息。
-- **稳定历史与删除。** 历史使用本地 UUID，可删单条、勾选项或全部记录，包括最近 200 条之外的记录。当前卡片及复核关联同步更新；用量、预算、目标设置和已登记参考保留。运行或排队期间先等待任务结束。
-- **离线操作手册。** 窗口内提供 13 章、12 张实际界面合成截图。随包手册与 Markdown 手册从同一内容源生成，不加载远程资源。
-- **请求兼容与校准工具。** 已有目标可调整输出上限，考试预览显示双方上限。修复考试题请求校验，并兼容被错标为流式的完整 JSON；真正中断的流仍不算完成。冻结研究与离线模拟支持两套新版题集及 GPT/Codex、DeepSeek，记录请求/重试计划、先导模板统计与验证区间。这些工具和合成测试不构成真实校准。
+| 变化 / Change | 用户和开发者可见的结果 / Result |
+| --- | --- |
+| 四家完整考试 / Four-family exams | GPT/Codex、Claude、DeepSeek、Gemini 均可选 120／180 题、单侧或匹配官方同题对照。五类能力、三档难度、每组合四种结构；每个必考侧全部完成才给最终成绩。 / All four families support complete relay-only or matched official exams with a balanced five-skill, three-tier blueprint. |
+| 独立试卷与兼容 / Independent papers | Claude 使用 `claude-exam-v1`，Gemini 使用 `gemini-exam-v1`，各有题目蓝图和独立答案程序。GPT/DeepSeek 保持 `exam-v2` 原题、答案和种子映射。 / New family-specific papers do not change legacy GPT/DeepSeek papers or grades. |
+| 边界题复核 / Boundary checks | 明确 Claude 负向切片追踪题的结束边界，正文与独立答案程序一致，固定试卷覆盖回归。 / Claude reverse-slice prompts explicitly state their stop boundary, with frozen regression cases. |
+| 型号与参数 / Exact-model settings | 界面、官方匹配与传输共用已核实的型号／协议规则；未知型号仅开放默认设置，不支持的旧设置明确提示。 / Reviewed settings are shared across UI, reference matching and transport; no silent model or effort fallback. |
+| 确认与反馈 / Approval and reports | 确认绑定完整试卷规格、双方型号和设置；排队开跑前再次检查。报告区分中转领先、同分、证据不足和明显落后，桌面、历史与 HTML 共用结论。 / Stale approval is rejected before requests; shared reports separate observed scores from supported conclusions. |
+| 离线研究预览 / Offline research planning | `calibration-plan` 无需 Key，展示完整试验及研究阶段的请求／token、重试、待确认建议和预算缺口。 / Keyless planning never authorizes collection or silently reduces exam quality. |
+| 逐题证据与诊断 / Pilot evidence | 冻结清单重建并校验题目种子、模板、难度、侧别、评分与请求总计；模板诊断显示有效配对、未知、格式失分和重试。 / Pilot diagnostics keep unknown evidence separate from incorrect answers and format losses. |
+| 验证成绩与失败 / Validation scores and failures | 双侧匿名计数支持分先导／验证的完卷率、无法判断比例、成绩分布和样本标准差。固定失败类别保留侧别与题号；旧缺失保持未知。 / Checked aggregate counts make repeat-score spread and terminal failures auditable without storing raw answers. |
+| 研究条件保护 / Study controls | 保存输出上限，拒绝采集参数与冻结条件冲突；推理变化研究拒绝不支持或已知等价的配置。 / Frozen source hashes remain strict, and no unsupported control is silently substituted. |
 
-- **Complete 120/180-question exams.** GPT/Codex and DeepSeek support relay-only or matching official comparisons across five skills and three difficulty tiers. Each skill/tier has four structures, balanced per 60-question block. Final marks require every required side to submit; incomplete runs retain progress and usage. Connection failures, interrupted streams and empty replies retry the original question only on the failed side, at most twice per item and within a per-side allowance of one fifth of the paper size. Preflight reserves base requests and retries: up to 144/216 requests relay-only or 288/432 paired.
-- **Shared `exam-v2`/`assessment-v4` scoring.** Bounded unique-JSON recovery separates wrong content, recoverable format deviations and unparseable answers, with diagnostics for ambiguous, duplicate-key, oversized and malformed input. Independent solvers verify generated answers. Anonymous `item_results` contain grading metadata only: task/template, difficulty, seed, side, outcome and attempts. Reports contain no question text, raw answers, credentials or private target details.
-- **Stable history and deletion.** Local UUIDs support single, selected and all-record deletion beyond the latest 200. Current cards and review links update while accounting, budgets, target settings and registered references remain. Wait for active or queued work to finish before deleting history.
-- **Offline illustrated manual.** The packaged manual has 13 chapters and 12 real interface screenshots using synthetic scenarios. It shares its content source with the Markdown manual and loads no remote assets.
-- **Transport and calibration tooling.** Existing targets expose output caps in the exam preview. Exam requests pass transport validation, and complete JSON mislabeled as an event stream is accepted; genuinely interrupted streams remain incomplete. Frozen study tools and offline simulations support both new suites, GPT/Codex and DeepSeek with request/retry plans, pilot template statistics and validation intervals. Synthetic checks are not real calibration results.
+巡检仍默认 10 题，周期检测由用户开关和设置间隔，不会自动启动能力考试。考试每题失败侧最多重试两次，每侧额外额度为题量的 20%；单侧最多预留 144／216 次，对照 288／432 次。答错和完整格式失分继续作答；认证、参数、截断、预算、取消或重试耗尽导致未交卷时保留进度与用量，不给最终成绩。
+
+The 10-question screen remains the low-cost monitoring option. Periodic checks never launch full exams. Retries preserve the original question and settings on the failed side, with at most two retries per item and a per-side 20% allowance. Incomplete exams retain progress and usage without final marks. Budgets remain user-confirmed; unknown prices remain unknown.
 
 ## 安装包 / Packages
 
-五个目标架构的完整发布清单如下。安装包是否已经公开以 Release 的 Assets 为准。
+五个目标架构的发布清单如下。完整发布需八个目标包和 `SHA256SUMS.txt`，各任务通过后才公开预发布。下载状态以 Release 的 Assets 为准。
 
-The complete release inventory covers five target architectures. Check the Release assets for availability.
+The release inventory covers five architectures with eight packages and a combined checksum file. Publication waits for the configured native build and smoke gates; check the actual Release assets.
 
 | 系统 / System | 文件名 / Asset |
 | --- | --- |
-| Windows 10/11 x64 | `Relay-Auditor-0.2.0-windows-x64-Setup.exe` · `Relay-Auditor-0.2.0-windows-x64-portable.zip` |
-| macOS Intel x64 | `Relay-Auditor-0.2.0-macos-x64.dmg` |
-| macOS Apple Silicon arm64 | `Relay-Auditor-0.2.0-macos-arm64.dmg` |
-| Ubuntu 24.04 x64 | `Relay-Auditor-0.2.0-linux-x64.deb` · `Relay-Auditor-0.2.0-linux-x64.tar.gz` |
-| Ubuntu 24.04 ARM64 | `Relay-Auditor-0.2.0-linux-arm64.deb` · `Relay-Auditor-0.2.0-linux-arm64.tar.gz` |
+| Windows 10/11 x64 | `Relay-Auditor-0.3.0-windows-x64-Setup.exe` · `Relay-Auditor-0.3.0-windows-x64-portable.zip` |
+| macOS Intel x64 | `Relay-Auditor-0.3.0-macos-x64.dmg` |
+| macOS Apple Silicon arm64 | `Relay-Auditor-0.3.0-macos-arm64.dmg` |
+| Ubuntu 24.04 x64 | `Relay-Auditor-0.3.0-linux-x64.deb` · `Relay-Auditor-0.3.0-linux-x64.tar.gz` |
+| Ubuntu 24.04 ARM64 | `Relay-Auditor-0.3.0-linux-arm64.deb` · `Relay-Auditor-0.3.0-linux-arm64.tar.gz` |
 
-下载同一 Release 的 `SHA256SUMS.txt` 核对 SHA-256。Windows 未签名，需系统已有 WebView2 Runtime。macOS 构建目标为 13+，使用临时签名，未做 Apple 公证。Linux 需 GTK 3、WebKitGTK 4.1 和 glibc 2.39+。原生 WebView 由系统提供，应用运行时不下载依赖。
+下载同一 Release 的 `SHA256SUMS.txt` 核对 SHA-256。Windows 未签名，需系统已有 WebView2 Runtime。macOS 构建目标为 13+，使用临时签名，未做 Apple 公证。Linux 需 GTK 3、WebKitGTK 4.1 和 glibc 2.39+。应用运行时不下载依赖。
 
-Verify downloads against `SHA256SUMS.txt` from the same Release. Windows builds are unsigned and require an existing WebView2 Runtime. macOS targets 13+ and uses ad hoc signing without Apple notarization. Linux requires GTK 3, WebKitGTK 4.1 and glibc 2.39+. Native WebViews are system dependencies; the app does not download runtime dependencies.
+Verify the selected package against `SHA256SUMS.txt` from the same Release. Windows packages are unsigned and require an existing WebView2 Runtime. macOS targets 13+ with ad hoc signing, without Apple notarization. Linux requires GTK 3, WebKitGTK 4.1 and glibc 2.39+. Runtime dependencies are not downloaded by the application.
 
-## 升级与证据边界 / Upgrade and evidence limits
+## 升级与开发交接 / Upgrade and developer handoff
 
-旧数据库补充稳定记录 ID；旧成绩继续保留原题集版本和原分数，不按新评分器重算。同一平台的源码桌面与打包桌面共用用户桌面数据目录；默认 CLI 使用仓库中的 `.relay-data/`，不会自动把该处历史迁移到桌面目录。升级前关闭旧程序，完整解压新版便携包，不混用 `_internal` 或 worker 文件。操作自己的数据前可在本机保留私人备份；不要把备份上传到问题反馈。
+- **旧历史保留。** 不重算旧分数，不把旧实验结果提升为已校准。不同题集／型号／设置的分数不能直接排名。源码桌面与打包桌面在同一系统共用桌面数据目录；CLI 默认的 `.relay-data/` 不自动迁入。升级时关闭旧程序，完整解压或安装新版，不混用 `_internal` 与 worker 文件。
+- **旧参数需确认。** 已保存但不受支持的推理设置会保留显示并提示调整；重新匹配官方参考、重新预览后再考试，不自动降档。
+- **冻结研究需对应源码。** 本版增加源文件与证据校验。旧研究用原冻结源码复现；新源码初始化新研究，不改写旧清单来绕过哈希。旧记录缺少成绩或失败证据时明确显示不可用，不补零。
+- **接入接口保持匿名 v2。** Token 监视器未来消费匿名快照；官方登录仅计量，中转探针和官方参考分别记账。检测 Key、地址、私人名称和原始回答不进入报告。
 
-Existing databases receive stable record IDs; historical suite versions and grades are preserved without rescoring. Source and packaged desktop apps on the same platform share the user's desktop data directory. The CLI defaults to the repository's `.relay-data/`, whose history is not automatically migrated into the desktop directory. Close the old app and extract the entire new portable bundle without mixing `_internal` or worker files. Keep any backup local and private.
+Existing history keeps its original suite version and marks. Reconfirm saved settings that are no longer supported instead of accepting a fallback. Reproduce frozen studies with the matching source, or initialize new studies; do not rewrite manifests to bypass hashes. Missing legacy evidence stays unknown. The anonymous v2 Token Monitor contract and separate login/probe/reference accounting remain intact.
 
-准备本说明时已有 263 项 Python 合成测试、22 项 Node 前端检查及本地 Windows x64 便携候选验证记录。五平台原生 CI 的结果以对应工作流为准。完整原生 GUI 验收仍待完成，不能由 worker、资源、浏览器或合成检查代替。型号级误报率、检出率与复考稳定性仍待独立授权的真实采样和复核；显著行为差异不能证明模型身份或造假。
+## 验证与仍待完成的工作 / Verification and remaining work
 
-At preparation, recorded checks comprise 263 synthetic Python tests, 22 Node dashboard checks and a local Windows x64 portable candidate. The corresponding workflow records the five native build outcomes. Full native GUI acceptance remains pending; worker, resource, browser and synthetic checks do not replace it. Model-level false-positive rates, detection rates and exam repeatability still require separately authorized real sampling and review. A significant behavioral difference does not establish model identity or fraud.
+软件验收使用合成数据，具体命令、测试数、平台构建及实际结果见[验证记录](VERIFICATION.md)。原生包、worker、资源和安装冒烟不等于完整原生 GUI 人工验收。四家型号的题目区分度、复考稳定性、误报率与检出率仍需单独授权官方访问、预算和跨日期真实采样。
 
-[安装指南 / Installation](https://github.com/liudabo-art/Codex-Lens/blob/v0.2.0/docs/INSTALLATION.md) · [操作手册 / Manual](https://github.com/liudabo-art/Codex-Lens/blob/v0.2.0/docs/USER_MANUAL.md) · [方法与校准 / Methods](https://github.com/liudabo-art/Codex-Lens/blob/v0.2.0/docs/METHODS.md) · [验证记录 / Verification](https://github.com/liudabo-art/Codex-Lens/blob/v0.2.0/docs/VERIFICATION.md) · [源码 / Source](https://github.com/liudabo-art/Codex-Lens/tree/v0.2.0) · [0.1.0 历史说明 / Historical notes](https://github.com/liudabo-art/Codex-Lens/blob/v0.1.0/docs/RELEASE_NOTES.md)
+Software checks use synthetic data; the verification record contains actual commands, counts and outcomes. Package and worker smoke checks do not replace full native GUI acceptance. Family/model-level discrimination, repeatability, false positives and detection power still require independently authorized real studies. Observed capability gaps do not establish model identity or fraud.
+
+[安装指南 / Installation](https://github.com/liudabo-art/Codex-Lens/blob/v0.3.0/docs/INSTALLATION.md) · [操作手册 / Manual](https://github.com/liudabo-art/Codex-Lens/blob/v0.3.0/docs/USER_MANUAL.md) · [支持矩阵 / Support](https://github.com/liudabo-art/Codex-Lens/blob/v0.3.0/docs/FOUR_FAMILY_DETECTION.md) · [方法 / Methods](https://github.com/liudabo-art/Codex-Lens/blob/v0.3.0/docs/METHODS.md) · [验证 / Verification](https://github.com/liudabo-art/Codex-Lens/blob/v0.3.0/docs/VERIFICATION.md) · [源码 / Source](https://github.com/liudabo-art/Codex-Lens/tree/v0.3.0) · [0.2.0 历史说明 / Historical notes](https://github.com/liudabo-art/Codex-Lens/blob/v0.2.0/docs/RELEASE_NOTES.md)

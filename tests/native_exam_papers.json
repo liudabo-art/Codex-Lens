@@ -1,0 +1,86 @@
+[
+  {
+    "family": "claude",
+    "version": "claude-exam-v1",
+    "samples": 120,
+    "seed": 0,
+    "sha256": "84207210337673b0d88d28a9bba51a2e65bdb67b70787487c121838de226b64d"
+  },
+  {
+    "family": "claude",
+    "version": "claude-exam-v1",
+    "samples": 120,
+    "seed": 42,
+    "sha256": "65bb2968aa1ed3c5f3c4c72710dd0d0edf6ddc9e2600b9c9d96fe36b166834a7"
+  },
+  {
+    "family": "claude",
+    "version": "claude-exam-v1",
+    "samples": 120,
+    "seed": 188121804,
+    "sha256": "065f41991e1f7ba77bc59db1071f6ae42e8b13f745fdfa088cea6165a8d3abb8"
+  },
+  {
+    "family": "claude",
+    "version": "claude-exam-v1",
+    "samples": 180,
+    "seed": 0,
+    "sha256": "1d778d134eae42cc5a419e79ca0864b550fb5bbbcc27d8d7861001255f07eec1"
+  },
+  {
+    "family": "claude",
+    "version": "claude-exam-v1",
+    "samples": 180,
+    "seed": 42,
+    "sha256": "b256d0b90d3fd70a8429b96eb1f38bee9fb03826d17e3e79d3009fc9df18d67e"
+  },
+  {
+    "family": "claude",
+    "version": "claude-exam-v1",
+    "samples": 180,
+    "seed": 188121804,
+    "sha256": "7d1d3b2af2ad4d61735a7f86805542d74cb562dfc4b99684f21c10f8d355a1fa"
+  },
+  {
+    "family": "gemini",
+    "version": "gemini-exam-v1",
+    "samples": 120,
+    "seed": 0,
+    "sha256": "0978bb27039dbe6ebf90aeb41b7cbf9fa1fdd1891a339a997779a6c1e856a18a"
+  },
+  {
+    "family": "gemini",
+    "version": "gemini-exam-v1",
+    "samples": 120,
+    "seed": 42,
+    "sha256": "c9ac9e19a0b857feea43b73724bb5c3ea030c7ef3816d51088d15635b91fa73f"
+  },
+  {
+    "family": "gemini",
+    "version": "gemini-exam-v1",
+    "samples": 120,
+    "seed": 188121804,
+    "sha256": "3f17501ad1a91888b20bbfc211b0a08fcb088f2cb26ef3c7e2aaf97b568e0f54"
+  },
+  {
+    "family": "gemini",
+    "version": "gemini-exam-v1",
+    "samples": 180,
+    "seed": 0,
+    "sha256": "e9a5e17191f044bce85e660d43954d061fdd7dd2a9351778a30d9f1a4709f52b"
+  },
+  {
+    "family": "gemini",
+    "version": "gemini-exam-v1",
+    "samples": 180,
+    "seed": 42,
+    "sha256": "5312480b47e0b1351bc5556c5ddb2636feaa39c93916a2ecc4fed51620bd3b35"
+  },
+  {
+    "family": "gemini",
+    "version": "gemini-exam-v1",
+    "samples": 180,
+    "seed": 188121804,
+    "sha256": "5b35d42e1eb86a827c4669920304b29f56bb4c2356f418412459176da0b6ff9b"
+  }
+]

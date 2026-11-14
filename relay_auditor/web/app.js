@@ -121,6 +121,7 @@
   function examEstimateView(plan, current) {
     const setup = (name, model, effort, outputLimit) => `${name} ${model || '未指定'}（推理 ${effort || '服务默认'}，输出上限 ${formatCount(outputLimit)} token）`;
     const settings = [setup('中转', plan.model, plan.reasoning_effort, plan.max_output_tokens)];
+    if (plan.model_family && plan.suite_version) settings.unshift(`${familyNames[plan.model_family] || plan.model_family} · 题集 ${plan.suite_version}`);
     if (plan.reference_requests) settings.push(setup('官方', plan.reference_model, plan.reference_reasoning_effort, plan.reference_max_output_tokens));
     const cost = `基础 ${formatCount(plan.required_requests)} 次（中转 ${formatCount(plan.target_requests)} 次、官方参考 ${formatCount(plan.reference_requests)} 次），最多重试 ${formatCount(plan.max_retry_requests)} 次，合计最多 ${formatCount(plan.max_requests)} 次。预留估算 ${formatCount(plan.estimated_tokens)} token，费用未知。`;
     let budget = null, shortfall = '';
@@ -164,8 +165,20 @@
     });
   }
   function exportSnapshot(data) {
-    const {display_names, model_choices, catalog_models, catalog_reasoning, desktop, vault_available, settings_status, report_cards, history_reports, official_presets, ...snapshot} = data;
+    const {display_names, model_choices, reasoning_catalog, catalog_models, catalog_reasoning, catalog_wires, desktop, vault_available, settings_status, report_cards, history_reports, official_presets, ...snapshot} = data;
     return snapshot;
+  }
+  function reasoningOptions(current, model, wire, catalog={}) {
+    const id = model || '';
+    const reviewed = /^(gpt-|gpt5\.6sol$|codex|o[134]|claude-|deepseek-|gemini-)/i.test(id.split('/').pop());
+    const allowed = reviewed ? (catalog[id]?.[wire] || []) : ['none','minimal','low','medium','high','xhigh','max'];
+    const options = [{value:'',label:'模型默认',disabled:false}, ...allowed.map(value=>({value,label:value,disabled:false}))];
+    if (current && !allowed.includes(current)) {
+      const mapped = {minimal:'low',medium:'high',xhigh:'high'}[current];
+      const alias = /^deepseek-/.test(id) && ['deepseek','chat'].includes(wire) && mapped && allowed.includes(mapped);
+      options.push({value:current,label:alias ? `${current} · 兼容别名，供应商映射为 ${mapped}` : current+' · 此型号/协议未核实，请重新选择',disabled:!alias});
+    }
+    return options;
   }
   function historySelection(data, selected, filter) {
     const visible = new Set(data.history.filter(row => historyMatches(row, filter)).map(row => row.record_id));
@@ -195,6 +208,7 @@
   }
   const exported = {formatCount, identityLabel, intervalSeconds, estimateRequests, exportSnapshot, qualityText, referenceSummary, targetLabel, pairedReviewSummary, selectedTarget, reportView, historyEntry, requestSummary, assessmentProgress, newAssessmentFailures, examEstimateView, runLabel, historyMatches, historySelection};
   exported.pruneDeletedHistory = pruneDeletedHistory;
+  exported.reasoningOptions = reasoningOptions;
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   if (typeof document === 'undefined') return;
   const $ = id => document.getElementById(id);
@@ -271,7 +285,7 @@
     invalid_credential:'目标 Key 格式有误，请重新粘贴后重试。',
     reference_provider_mismatch:referenceErrors.reference_provider_mismatch,
     official_direct:'当前目标为官方直连，可以直接测试能力。',
-    budget_exhausted:'本轮预估超过剩余预算。请调整下方每日预算或减少样本。',
+    budget_exhausted:'本轮预估超过剩余预算。请调整下方每日预算或稍后再测。',
     assessment_changed:'检测设置已变化，请查看更新后的请求量再开始。',
     exam_changed:'考试条件或预算已变化，请重新估算并确认。',
     exam_unsupported:'能力考试仅支持 GPT / Codex 和 DeepSeek 中转。',
@@ -293,11 +307,16 @@
     all.forEach(id => { const option = document.createElement('option'); option.value = id; option.textContent = id; select.append(option); });
     select.value = selected || '';
   }
-  function reasoningSelect(value) {
+  function setReasoning(select, value, model, wire) {
+    select.replaceChildren();
+    reasoningOptions(value,model,wire,state?.reasoning_catalog).forEach(item => {
+      const option = new Option(item.label,item.value); option.disabled = item.disabled; select.append(option);
+    });
+    select.value = value || '';
+  }
+  function reasoningSelect(value, model, wire) {
     const select = document.createElement('select');
-    ['', 'none','minimal','low','medium','high','xhigh','max'].forEach(effort => {
-      const option = document.createElement('option'); option.value = effort; option.textContent = effort || '模型默认'; select.append(option);
-    }); select.value = value || ''; return select;
+    setReasoning(select,value,model,wire); return select;
   }
   function cell(row, value) { const td = document.createElement('td'); td.textContent = value; row.append(td); }
   function sameTarget(item, target) {
@@ -378,7 +397,7 @@
     const nameInput = document.createElement('input'); nameInput.className = 'displayName'; nameInput.maxLength = 60; nameInput.value = state.display_names[target.source_alias] || '未命名测试'; nameLabel.append(nameInput);
     const modelLabel = document.createElement('label'); modelLabel.textContent = '检测模型';
     const modelSelect = document.createElement('select'); modelSelect.className = 'modelChoice'; setModels(modelSelect,state.model_choices[target.source_alias] || [],target.model); modelLabel.append(modelSelect);
-    const effortLabel = document.createElement('label'); effortLabel.textContent = '推理档位'; const effort = reasoningSelect(target.reasoning_effort); effort.className = 'effort'; effortLabel.append(effort);
+    const effortLabel = document.createElement('label'); effortLabel.textContent = '推理档位'; const effort = reasoningSelect(target.reasoning_effort,target.model,target.wire_api); effort.className = 'effort'; effortLabel.append(effort);
     const outputLabel = document.createElement('label'); outputLabel.textContent = '输出 token 上限';
     const outputLimit = document.createElement('input'); outputLimit.className = 'outputLimit'; outputLimit.type = 'number';
     outputLimit.min = '128'; outputLimit.max = '16384'; outputLimit.step = '1'; outputLimit.required = true;
@@ -389,6 +408,7 @@
     const wire = document.createElement('select'); wire.className = 'wireChoice';
     Object.entries(wireNames).forEach(([value, title]) => wire.add(new Option(title, value)));
     wire.value = target.wire_api; wireLabel.append(wire);
+    [modelSelect,wire].forEach(control=>control.addEventListener('change',()=>setReasoning(effort,effort.value,modelSelect.value,wire.value)));
     const buttons = document.createElement('div'); buttons.className = 'actions';
     const refresh = document.createElement('button'); refresh.textContent = '刷新模型列表';
     refresh.addEventListener('click', () => busy(refresh, async () => {
@@ -564,6 +584,7 @@
     const failures = newAssessmentFailures(state, data, historyDeleting || deletionRefreshPending);
     if (authoritative) deletionRefreshPending = false;
     state = data;
+    refreshFormEfforts();
     const u = data.usage, b = data.budget;
     $('probeTokens').textContent = formatCount(u.probe_tokens);
     $('referenceTokens').textContent = formatCount(u.reference_tokens);
@@ -700,7 +721,9 @@
           row.classList.add('provider-row');
           const nameInput = document.createElement('input'); nameInput.placeholder = '填写测试名称'; nameInput.maxLength = 60; nameInput.setAttribute('aria-label','导入后的测试名称');
           const model = document.createElement('select'); model.setAttribute('aria-label','导入模型'); setModels(model, data.catalog_models[provider.source_alias] || [],provider.model);
-          const effort = reasoningSelect(data.catalog_reasoning[provider.source_alias]); effort.setAttribute('aria-label','导入推理档位');
+          const importWire = data.catalog_wires?.[provider.source_alias];
+          const effort = reasoningSelect(data.catalog_reasoning[provider.source_alias],model.value,importWire); effort.setAttribute('aria-label','导入推理档位');
+          model.addEventListener('change',()=>setReasoning(effort,effort.value,model.value,importWire));
           const remember = document.createElement('input'); remember.type = 'checkbox';
           const rememberLabel = document.createElement('label'); rememberLabel.className = 'checkbox';
           rememberLabel.append(remember, '存入系统凭据库，下次打开可直接检测');
@@ -1020,6 +1043,9 @@
   });
   $('targetForm').addEventListener('submit', async event => {
     event.preventDefault(); const form = event.currentTarget, data = Object.fromEntries(new FormData(form));
+    if (form.elements.reasoning_effort.selectedOptions[0]?.disabled)
+      return message('当前型号或协议未核实此推理档位，请手动重新选择；设置不会自动降档。',true);
+    data.reasoning_effort = form.elements.reasoning_effort.value;
     data.max_output_tokens = Number(data.max_output_tokens); data.temperature = data.temperature === '' ? null : Number(data.temperature);
     data.stream = form.elements.stream.checked;
     data.save_credentials=form.elements.save_credentials.checked;
@@ -1030,6 +1056,9 @@
       await showAddedTarget(result.source_alias);
     }
   });
+  const targetFields=$('targetForm').elements;
+  function refreshFormEfforts() { setReasoning(targetFields.reasoning_effort,targetFields.reasoning_effort.value,targetFields.model.value,targetFields.wire_api.value); }
+  ['model','wire_api'].forEach(name=>targetFields[name].addEventListener('change',refreshFormEfforts));
   $('budgetForm').addEventListener('submit', event => {
     event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget));
     action('budget', {request_limit:Number(data.request_limit), token_limit:Number(data.token_limit)}, '每日预算已更新。');
@@ -1053,7 +1082,7 @@
   $('readModels').addEventListener('click', event => busy(event.currentTarget,async () => {
     const form = $('targetForm');
     const result = await action('models',{base_url:form.elements.base_url.value,api_key:form.elements.api_key.value,wire_api:form.elements.wire_api.value},'模型列表已读取，请从列表选择模型。');
-    if (result) setModels(form.elements.model,result.models,form.elements.model.value);
+    if (result) { setModels(form.elements.model,result.models,form.elements.model.value); refreshFormEfforts(); }
   }));
   ['base_url','api_key','wire_api'].forEach(name => $('targetForm').elements[name].addEventListener('input', () => {
     setModels($('targetForm').elements.model,[],'','先读取中转模型列表');

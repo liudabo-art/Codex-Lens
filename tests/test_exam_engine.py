@@ -31,7 +31,7 @@ class ExamPaperTests(unittest.TestCase):
                         self.assertTrue(all(count == 1 for count in variants.values()))
 
     def test_unsupported_families_and_paper_lengths_cannot_generate_papers(self):
-        for family, samples in [('claude', 120), ('gpt', 10), ('deepseek', 200)]:
+        for family, samples in [('unknown', 120), ('gpt', 10), ('deepseek', 200)]:
             with self.assertRaises(ValueError):
                 tuple(exam_cases(family, samples, 42))
 
@@ -64,6 +64,31 @@ class ExamExecutionTests(unittest.TestCase):
             'per_call': 6400,
         }
         return run_exam(self.service, self.monitor, plan, self.result, seed=42)
+
+    def test_claude_infers_its_own_suite_for_legacy_test_plan(self):
+        from dataclasses import replace
+        self.monitor.target = replace(self.monitor.target, model='claude-test')
+        self.result = {}
+        result = self.run_paper()
+        self.assertEqual(result['suite_version'], 'claude-exam-v1')
+        self.assertEqual(result['model_family'], 'claude')
+        self.assertTrue(result['exam']['submitted'])
+        self.assertEqual(result['capability_correct'], 120)
+        self.assertTrue(all(row['template'].startswith('claude_') for row in result['item_results']))
+
+    def test_mismatched_family_or_version_refuses_before_budget_or_requests(self):
+        for fields in ({'model_family': 'claude', 'suite_version': 'claude-exam-v1'},
+                       {'model_family': 'gpt', 'suite_version': 'claude-exam-v1'},
+                       {'model_family': 'gpt', 'suite_version': 'future-exam-v9'}):
+            with self.subTest(fields=fields):
+                plan = {'sample_count': 120, 'comparison': 'relay_only', **fields}
+                result = {}
+                before = self.store.budget()
+                with self.assertRaisesRegex(ValueError, 'invalid_exam_paper'):
+                    run_exam(self.service, self.monitor, plan, result, seed=42)
+                self.assertEqual(self.calls, [])
+                self.assertEqual(self.store.budget(), before)
+                self.assertEqual(result, {})
 
     def test_full_single_side_counts_wrong_and_format_failures_and_recovers_fence(self):
         self.result = {}

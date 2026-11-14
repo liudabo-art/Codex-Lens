@@ -15,9 +15,14 @@ import re
 import secrets
 
 from . import assessment,exam
+from .exam_registry import get_exam_spec,is_exam_suite
+from .calibration_metrics import (TRIAL_ERROR_CODES, extract_exam_score_counts,
+                                  checked_exam_score_counts, make_trial_failure,
+                                  checked_trial_failure, quality_metrics)
 from .controller import Cancelled,Service
 from .families import PROFILES,family_for
 from .official import PRESETS,compatible_protocols,official_model,restore_reference
+from .model_capabilities import supports_parameters
 from .protocol import Protocol,model_name
 from .suites import SUITES,cases
 from .statistics import MINIMUM_PAIRED_SAMPLES,compare_paired,paired_p_value,spending_alpha
@@ -35,14 +40,29 @@ def _digest(body):
     return hashlib.sha256(json.dumps(body,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
+def _trial_seed(manifest,scenario,index,phase):
+    return manifest['seed']+(10**9 if phase=='validation' else 0)+SCENARIOS.index(scenario)*10**7+index*1000
+
+
 def freeze(primary_model,alternative_model,protocol,*,samples=None,trials=100,seed=None,
            frozen_at=None,scope='primary',audit_index=1,suite=None,family=None):
-    if suite not in (None,'exam-v2','assessment-v4') or family not in (None,'gpt','deepseek'):
+    if (suite not in (None,'assessment-v4') and not is_exam_suite(suite)
+            or family not in (None,'gpt','deepseek','claude','gemini')):
         raise ValueError('invalid_study')
     family=family or 'gpt'
-    is_exam=suite=='exam-v2'
-    samples=(120 if is_exam else 40) if samples is None else samples
-    if is_exam and samples not in exam.EXAM_SIZES: raise ValueError('invalid_study')
+    is_exam=is_exam_suite(suite)
+    try:
+        spec=get_exam_spec(family,suite) if is_exam else None
+    except ValueError:
+        raise ValueError('invalid_study') from None
+    # Native assessments retain their initial default-only settings. Native exams
+    # use the exact shared model policy checked by compatible_protocols below.
+    if family in ('claude','gemini') and (not (suite=='assessment-v4' or is_exam) or scope!='primary'
+            or not is_exam
+            and (protocol.reasoning_effort is not None or protocol.temperature is not None)):
+        raise ValueError('invalid_study')
+    samples=(spec.sizes[0] if is_exam else 40) if samples is None else samples
+    if is_exam and samples not in spec.sizes: raise ValueError('invalid_study')
     model_name(primary_model); model_name(alternative_model)
     if primary_model==alternative_model or type(samples) is not int or not 1<=samples<=200 or type(trials) is not int or not 100<=trials<=1000:
         raise ValueError('invalid_study')
@@ -50,7 +70,7 @@ def freeze(primary_model,alternative_model,protocol,*,samples=None,trials=100,se
     if type(seed) is not int or not 0<=seed<10**9: raise ValueError('invalid_study')
     if not isinstance(scope,str) or scope not in SCOPES or type(audit_index) is not int or not 1<=audit_index<=100000:
         raise ValueError('invalid_study')
-    preset='openai' if family=='gpt' else 'deepseek'
+    preset={'gpt':'openai','deepseek':'deepseek','claude':'anthropic','gemini':'google'}[family]
     if protocol.wire_api not in PRESETS[preset].wires or any(
         family_for(model)!=family or official_model(preset,model)!=model
         or not compatible_protocols(preset,protocol,protocol,model)
@@ -59,21 +79,27 @@ def freeze(primary_model,alternative_model,protocol,*,samples=None,trials=100,se
         raise ValueError('invalid_study_model')
     frozen_at=frozen_at or datetime.now(timezone.utc).isoformat()
     if datetime.fromisoformat(frozen_at).tzinfo is None: raise ValueError('invalid_study')
+    scenarios=SCOPES[scope]
+    changed_effort='none' if protocol.reasoning_effort=='low' else 'low'
+    if ('reasoning_changed' in scenarios and (
+            family=='deepseek' and protocol.reasoning_effort=='minimal' and changed_effort=='low'
+            or not supports_parameters(primary_model,replace(protocol,reasoning_effort=changed_effort)))):
+        raise ValueError('unsupported_study_reasoning')
     try:
         hashes={name:hashlib.sha256(Path(__file__).with_name(name+'.py').read_bytes()).hexdigest()
                 for name in ('assessment','planning','families','controller','suites','protocol','statistics',
                              'calibration','storage','transport','official','adapters','exam','grading')}
-        generator=Path(__file__).with_name('exam_generators.py')
-        if generator.exists(): hashes['exam_generators']=hashlib.sha256(generator.read_bytes()).hexdigest()
+        for name in ('exam_generators','exam_registry','native_exam_generators','model_capabilities','calibration_metrics'):
+            source=Path(__file__).with_name(name+'.py')
+            if source.exists(): hashes[name]=hashlib.sha256(source.read_bytes()).hexdigest()
     except OSError: raise ValueError('calibration_source_required') from None
-    scenarios=SCOPES[scope]
     cuts=[(index*trials+2)//3 for index in range(4)]
     validation_blocks=[{'start_trial': start, 'stop_trial': stop} for start,stop in zip(cuts,cuts[1:])]
-    retries=samples*2//5 if is_exam else samples*4 if suite is not None else 0
+    retries=spec.retry_requests_per_side(samples)*2 if is_exam else samples*4 if suite is not None else 0
     primary_requests=len(scenarios)*(trials+10)*samples*2
     retry_requests=(len(scenarios)-(1 if 'context_truncated' in scenarios else 0))*(trials+10)*retries
     body={'schema_version':2,'frozen_at':frozen_at,'implementation_hashes':hashes,
-          'suite_version':exam.EXAM_VERSION if is_exam else assessment.VERSION,'suite_selection':suite,
+          'suite_version':spec.version if is_exam else assessment.VERSION,'suite_selection':suite,
           'family':family,'official_preset':preset,'official_base_url':PRESETS[preset].base_url,
           'specialist_context_suite':SUITES['context']['version'] if 'context_truncated' in scenarios else None,
           'primary_model':primary_model,'alternative_model':alternative_model,
@@ -81,10 +107,10 @@ def freeze(primary_model,alternative_model,protocol,*,samples=None,trials=100,se
           'scope':scope,'audit_index':audit_index,'alpha':spending_alpha(audit_index),
           'validation_date_basis':'UTC','validation_blocks':validation_blocks,
           'minimum_effect':.10,'minimum_pairs':MINIMUM_PAIRED_SAMPLES,'scenarios':list(scenarios),
-          'changed_reasoning_effort':'none' if protocol.reasoning_effort=='low' else 'low',
+          'changed_reasoning_effort':changed_effort,
           'planned_requests':primary_requests,'planned_retry_requests':retry_requests,
           'max_requests':primary_requests+retry_requests,
-          'retry_policy':{'enabled':bool(retries),'max_retries_per_item':len(assessment.RETRY_DELAYS) if retries else 0,
+          'retry_policy':{'enabled':bool(retries),'max_retries_per_item':spec.max_retries_per_item if is_exam else len(assessment.RETRY_DELAYS) if retries else 0,
                           'delays_seconds':list(assessment.RETRY_DELAYS) if retries else [],
                           'retryable_errors':sorted(exam.RETRYABLE if is_exam else assessment.RETRYABLE) if retries else [],
                           'max_retry_requests_per_trial':retries,'context_control_retries':0},
@@ -235,7 +261,7 @@ def collect_trial(manifest,scenario,index,phase,primary,alternative,store,*,reco
         raise ValueError('study_targets_mismatch')
     primary=restore_reference(preset,primary.api_key,primary.model,protocol)
     alternative=restore_reference(preset,alternative.api_key,alternative.model,protocol)
-    seed=manifest['seed']+(10**9 if phase=='validation' else 0)+SCENARIOS.index(scenario)*10**7+index*1000
+    seed=_trial_seed(manifest,scenario,index,phase)
     rng=random.Random(seed)
     changed=replace(primary,protocol=replace(protocol,reasoning_effort=manifest['changed_reasoning_effort']))
     mixture=int(scenario.split('_')[1])/100 if scenario.startswith('mixed_') else 0
@@ -270,27 +296,33 @@ def collect_trial(manifest,scenario,index,phase,primary,alternative,store,*,reco
     monitor.reference_declared_model=primary.model
     result={}
     cancelled=False
+    stop_reason=None
+    failure=None
     try:
         if scenario=='context_truncated':
             _context_control(service,monitor,manifest['samples'],seed,result)
-        elif manifest['suite_selection']=='exam-v2':
+        elif is_exam_suite(manifest['suite_selection']):
             from .planning import exam_plan
-            plan=exam_plan(monitor,manifest['samples'],'paired',store.budget())
+            plan=exam_plan(monitor,manifest['samples'],'paired',store.budget(),suite_version=manifest['suite_version'])
             exam.run_exam(service,monitor,plan,result,seed=seed)
         else:
             options={'recover':True} if manifest['retry_policy']['enabled'] else {}
             assessment.run_assessment(service,monitor,manifest['samples'],result,seed=seed,**options)
     except (KeyboardInterrupt,Cancelled):
         cancelled=True
-    except (EndpointError,BudgetExceeded):
+        failure=make_trial_failure('cancelled',result,manifest['samples'])
+    except BudgetExceeded:
+        stop_reason='budget_exhausted'
+        failure=make_trial_failure('budget_exhausted',result,manifest['samples'])
+    except EndpointError as error:
         # A failed trial remains in the denominator. The production runner owns
         # its stop/retry rule; the study never retries a discarded whole paper.
-        pass
-    if manifest['suite_selection']=='exam-v2' and scenario!='context_truncated' and 'paired_result' not in result:
+        failure=make_trial_failure(str(error),result,manifest['samples'])
+    if is_exam_suite(manifest['suite_selection']) and scenario!='context_truncated' and 'paired_result' not in result:
         attempted={}
         for item in result.get('item_results',[]):
             if item['attempts']:
-                answer=False if item['error_code']=='answer_format' else item['correct']
+                answer=_exam_item_score(item)
                 attempted.setdefault(item['question_number'],{})[item['source_kind']]=answer
         pairs=[(sides.get('reference'),sides.get('relay')) for _,sides in sorted(attempted.items())]
         result['paired_result']=assessment.assessment_comparison(pairs,manifest['samples'],alpha=None)
@@ -308,10 +340,79 @@ def collect_trial(manifest,scenario,index,phase,primary,alternative,store,*,reco
             'alternative_calls':alternative_calls,'validation_state':'experimental','cancelled':cancelled,
             'requests':budget.requests,'reported_tokens':budget.reported_tokens,
             'unknown_usage':budget.unknown_usage,'estimated_tokens':budget.estimated_tokens,'estimated_cost':None}
+    if stop_reason is not None: outcome['stop_reason']=stop_reason
+    if failure is not None: outcome['trial_failure']=failure
+    if is_exam_suite(manifest['suite_selection']) and scenario!='context_truncated':
+        outcome['exam_score_counts']=extract_exam_score_counts(result,manifest['samples'])
     if phase=='pilot' and scenario!='context_truncated':
         outcome['pilot_tasks']=result.get('assessment_tasks',[])
-        outcome['pilot_items']=result.get('item_results',[])
+        # Custom transports can throw arbitrary exception text. Only fixed
+        # service codes, never that text, enter anonymous per-item evidence.
+        allowed_codes=TRIAL_ERROR_CODES | {None,'answer_format','recovered_format'}
+        outcome['pilot_items']=[{**item,'error_code':item['error_code'] if item['error_code'] in allowed_codes else 'remote_error'}
+                                for item in result.get('item_results',[])]
     return outcome
+
+
+def _exam_item_score(item):
+    """Separate an observed format loss from a slot's ungraded default state."""
+    from .grading import GRADING_ISSUES
+    if type(item['correct']) is bool:
+        if (item['attempts']>0 and item['grading_issue'] is None and
+            (item['format_state'],item['error_code']) in (('valid',None),('recovered_format','recovered_format'))):
+            return item['correct']
+    elif item['correct'] is None:
+        if (item['attempts']>0 and item['format_state']==item['error_code']=='answer_format'
+            and item['grading_issue'] in GRADING_ISSUES):
+            return False
+        if (item['grading_issue'] is None and item['format_state']=='answer_format'
+            and item['error_code'] not in ('answer_format','recovered_format')):
+            return None
+    raise ValueError('invalid_outcomes')
+
+
+def _checked_exam_pilot_items(manifest,row):
+    """Match every anonymous pilot slot to its frozen paper, then reconcile counts."""
+    if 'pilot_items' not in row:
+        return None
+    items=row['pilot_items']
+    if items==[]:
+        if any(row.get(field,0) for field in ('requests','retry_requests','attempted_pairs','valid_pairs','regressions','improvements')):
+            raise ValueError('invalid_outcomes')
+        return None
+    if not isinstance(items,list) or len(items)!=2*manifest['samples']:
+        raise ValueError('invalid_outcomes')
+    cases=tuple(exam.exam_cases(manifest['family'],manifest['samples'],
+                               _trial_seed(manifest,row['scenario'],row['trial_index'],row['phase']),
+                               suite_version=manifest['suite_version']))
+    slots={(item['question_number'],item['source_kind']):item for item in items}
+    if len(slots)!=len(items): raise ValueError('invalid_outcomes')
+    pairs=[]
+    ordered=[]
+    for question,(case,difficulty) in enumerate(cases,1):
+        sides={}
+        attempted=False
+        for source in ('reference','relay'):
+            item=slots.get((question,source))
+            if item is None or any(item[field]!=value for field,value in (
+                    ('question_number',question),('seed',case.seed),('task_kind',case.kind),
+                    ('template',case.variant),('difficulty',difficulty))):
+                raise ValueError('invalid_outcomes')
+            sides[source]=_exam_item_score(item)
+            attempted=attempted or item['attempts']>0
+            ordered.append(item)
+        if attempted: pairs.append((sides['reference'],sides['relay']))
+    requests=sum(item['attempts'] for item in ordered)
+    retries=sum(max(item['attempts']-1,0) for item in ordered)
+    spec=get_exam_spec(manifest['family'],manifest['suite_version'])
+    if (row['requests']!=requests or row.get('retry_requests',0)!=retries or any(
+            sum(max(item['attempts']-1,0) for item in ordered if item['source_kind']==source)>spec.retry_requests_per_side(manifest['samples'])
+            for source in ('reference','relay'))):
+        raise ValueError('invalid_outcomes')
+    comparison=compare_paired(pairs,alpha=manifest['alpha'])
+    if any(row[field]!=comparison[field] for field in ('attempted_pairs','valid_pairs','regressions','improvements','p_value')):
+        raise ValueError('invalid_outcomes')
+    return tuple(ordered)
 
 
 def _pilot_task_totals(pilot_rows):
@@ -344,6 +445,71 @@ def _pilot_template_totals(pilot_rows):
     return list(by_template.values())
 
 
+def _pilot_template_diagnostics(manifest,pilot_rows):
+    """Describe checked same-question observations, without grading a pilot paper."""
+    result={'schema_version':1,'evidence':'descriptive_pilot','evidence_state':'not_applicable',
+            'pilot_trials':len(pilot_rows),'item_evidence_trials':0,'missing_item_evidence_trials':0,
+            'completed_trials':sum(row['complete'] for row in pilot_rows),
+            'cancelled_trials':sum(row['cancelled'] for row in pilot_rows),'templates':[]}
+    if not is_exam_suite(manifest['suite_selection']) or any(row['scenario']=='context_truncated' for row in pilot_rows):
+        return result
+    by_template={}
+    for row in pilot_rows:
+        items=row.get('pilot_items',[])
+        if not items:
+            result['missing_item_evidence_trials']+=1
+            continue
+        result['item_evidence_trials']+=1
+        questions={}
+        for item in items:
+            questions.setdefault(item['question_number'],{})[item['source_kind']]=item
+        for sides in questions.values():
+            reference=sides['reference']
+            key=(reference['task_kind'],reference['template'],reference['difficulty'])
+            if key not in by_template:
+                by_template[key]={'task_kind':key[0],'template':key[1],'difficulty':key[2],
+                    **dict.fromkeys(('planned_pairs','attempted_pairs','valid_pairs','unknown_pairs',
+                                     'both_correct','both_incorrect','regressions','improvements'),0),
+                    'observed_score_gap':None,
+                    **{source:dict.fromkeys(('attempted','requests','retry_requests','scored','correct',
+                                             'format_losses','format_recovered','unknown'),0)
+                       for source in ('reference','relay')}}
+            total=by_template[key]
+            total['planned_pairs']+=1
+            total['attempted_pairs']+=int(any(item['attempts']>0 for item in sides.values()))
+            scores={}
+            for source,item in sides.items():
+                score=_exam_item_score(item)
+                scores[source]=score
+                counts=total[source]
+                counts['attempted']+=int(item['attempts']>0)
+                counts['requests']+=item['attempts']
+                counts['retry_requests']+=max(item['attempts']-1,0)
+                counts['scored']+=int(score is not None)
+                counts['correct']+=int(score is True)
+                counts['format_losses']+=int(item['error_code']=='answer_format')
+                counts['format_recovered']+=int(item['format_state']=='recovered_format')
+                counts['unknown']+=int(score is None)
+            ref,relay=scores['reference'],scores['relay']
+            if ref is None or relay is None:
+                total['unknown_pairs']+=1
+            else:
+                total['valid_pairs']+=1
+                category=('both_correct' if ref and relay else 'both_incorrect' if not ref and not relay
+                          else 'regressions' if ref else 'improvements')
+                total[category]+=1
+    for key,total in sorted(by_template.items()):
+        valid=total['valid_pairs']
+        total['observed_score_gap']=(total['regressions']-total['improvements'])/valid if valid else None
+        for source in ('reference','relay'):
+            counts=total[source]
+            counts['score_rate']=counts['correct']/counts['scored'] if counts['scored'] else None
+        result['templates'].append(total)
+    result['evidence_state']=('unavailable' if not result['item_evidence_trials'] else
+                              'partial' if result['missing_item_evidence_trials'] else 'available')
+    return result
+
+
 def evaluate(manifest,records):
     validate(manifest); result={}
     checked_records(manifest,records)
@@ -354,10 +520,14 @@ def evaluate(manifest,records):
         unknown=sum(r.get('complete') is not True for r in rows)
         # Unresolved healthy trials count against false-positive acceptance.
         interval=binomial_interval(positives+unknown if kind=='healthy' else positives,n)
+        diagnostics=_pilot_template_diagnostics(manifest,pilots)
+        if kind=='context_truncated': diagnostics['evidence_state']='not_applicable'
         result[kind]={'sample_count':n,'detected':positives,'unknown':unknown,'interval':interval,
                       'observed_interval':binomial_interval(positives,n),
                       'pilot_trials':len(pilots),'pilot_tasks':_pilot_task_totals(pilots),
                       'pilot_templates':_pilot_template_totals(pilots),
+                      'pilot_diagnostics':diagnostics,
+                      'quality_metrics':quality_metrics(manifest,pilots+rows),
                       'pilot_usage':{key:sum(r[key] for r in pilots)
                                      for key in ('requests','reported_tokens','unknown_usage','estimated_tokens')},
                       'requests':sum(r.get('requests',0) for r in rows),'reported_tokens':sum(r.get('reported_tokens',0) for r in rows),
@@ -381,6 +551,8 @@ def evaluate(manifest,records):
 
 
 def checked_records(manifest,records):
+    spec=get_exam_spec(manifest['family'],manifest['suite_version']) if is_exam_suite(manifest['suite_selection']) else None
+    allowed_tasks=spec.task_kinds if spec else PROFILES[manifest['family']].tasks
     if not isinstance(records,list) or len(records)>len(manifest['scenarios'])*(manifest['trials']+manifest['pilot_trials']): raise ValueError('invalid_outcomes')
     seen=set()
     for row in records:
@@ -393,6 +565,9 @@ def checked_records(manifest,records):
             not 0<=key[2]<(manifest['pilot_trials'] if key[0]=='pilot' else manifest['trials']) or
             any(type(row.get(field)) is not bool for field in ('complete','detected','cancelled')) or
             not isinstance(row.get('day'),str) or not re.fullmatch('[0-9]{4}-[0-9]{2}-[0-9]{2}',row['day'])): raise ValueError('invalid_outcomes')
+        if 'stop_reason' in row and (type(row['stop_reason']) is not str or row['stop_reason']!='budget_exhausted'
+                or row['complete'] or row['cancelled'] or row['detected']):
+            raise ValueError('invalid_outcomes')
         try: datetime.strptime(row['day'],'%Y-%m-%d')
         except ValueError: raise ValueError('invalid_outcomes') from None
         if key in seen: raise ValueError('duplicate_outcome')
@@ -415,11 +590,11 @@ def checked_records(manifest,records):
             or row['detected']!=detected or row.get('applied_audit_index')!=(manifest['audit_index'] if complete else None)):
             raise ValueError('invalid_outcomes')
         pilot_tasks=row.get('pilot_tasks',[])
-        if (not isinstance(pilot_tasks,list) or len(pilot_tasks)>len(PROFILES[manifest['family']].tasks)*4 or
+        if (not isinstance(pilot_tasks,list) or len(pilot_tasks)>len(allowed_tasks)*4 or
             pilot_tasks and (row['phase']!='pilot' or row['scenario']=='context_truncated')):
             raise ValueError('invalid_outcomes')
         for task in pilot_tasks:
-            if (not isinstance(task,dict) or 'difficulty' not in task or task.get('task_kind') not in PROFILES[manifest['family']].tasks
+            if (not isinstance(task,dict) or 'difficulty' not in task or task.get('task_kind') not in allowed_tasks
                 or task.get('difficulty') not in (None,1,2,3,4)
                 or any(type(task.get(field,0)) is not int or not 0<=task.get(field,0)<=manifest['samples']
                        for field in TASK_COUNTS)):
@@ -436,7 +611,6 @@ def checked_records(manifest,records):
             'rate_limited','http_error','remote_error','reference_model_unavailable',
             'service_unavailable','endpoint_unavailable','redirect_blocked','response_too_large',
         }
-        allowed_tasks=exam.EXAM_TASKS if manifest['suite_selection']=='exam-v2' else PROFILES[manifest['family']].tasks
         for item in items:
             if (not isinstance(item,dict) or set(item)!={'question_number','task_kind','template','difficulty','seed',
                     'source_kind','correct','format_state','attempts','error_code','grading_issue'} or
@@ -448,11 +622,17 @@ def checked_records(manifest,records):
                 item['correct'] is not None and type(item['correct']) is not bool or
                 item['format_state'] not in (None,'valid','recovered_format','answer_format') or
                 type(item['attempts']) is not int or not 0<=item['attempts']<=1+manifest['retry_policy']['max_retries_per_item'] or
+                item['error_code'] is not None and not isinstance(item['error_code'],str) or
+                item['grading_issue'] is not None and not isinstance(item['grading_issue'],str) or
                 item['error_code'] not in allowed_errors or item['grading_issue'] not in GRADING_ISSUES | {None}):
                 raise ValueError('invalid_outcomes')
             item_key=(item['source_kind'],item['question_number'])
             if item_key in seen_items: raise ValueError('invalid_outcomes')
             seen_items.add(item_key)
+        if spec and row['phase']=='pilot' and row['scenario']!='context_truncated':
+            _checked_exam_pilot_items(manifest,row)
+        checked_exam_score_counts(manifest,row)
+        checked_trial_failure(manifest,row)
 
 
 def read_study(directory):

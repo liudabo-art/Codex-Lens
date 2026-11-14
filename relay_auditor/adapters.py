@@ -55,18 +55,20 @@ def complete(target,case,opener):
     protocol=target.protocol; effort=protocol.reasoning_effort; anthropic=protocol.wire_api=='anthropic'
     if anthropic:
         body={'model':target.model,'max_tokens':protocol.max_output_tokens,'stream':protocol.stream,'messages':[case.payload()]}
-        if effort=='none': body['thinking']={'type':'disabled'}
-        elif effort:
-            if effort not in ('low','medium','high','max'): raise EndpointError('unsupported_parameters')
-            body.update(thinking={'type':'adaptive'},output_config={'effort':effort})
+        from .model_capabilities import anthropic_thinking_options
+        try:
+            body.update(anthropic_thinking_options(target.model, effort))
+        except ValueError:
+            raise EndpointError('unsupported_parameters') from None
         route='/messages'
         if protocol.temperature is not None: body['temperature']=protocol.temperature
     else:
         config={'maxOutputTokens':protocol.max_output_tokens}
-        if effort=='none': config['thinkingConfig']={'thinkingBudget':0}
-        elif effort:
-            if effort not in ('minimal','low','medium','high'): raise EndpointError('unsupported_parameters')
-            config['thinkingConfig']={'thinkingLevel':effort.upper()}
+        from .model_capabilities import gemini_thinking_options
+        try:
+            config.update(gemini_thinking_options(target.model, effort))
+        except ValueError:
+            raise EndpointError('unsupported_parameters') from None
         if protocol.temperature is not None: config['temperature']=protocol.temperature
         body={'contents':[{'role':'user','parts':[{'text':case.prompt}]}],'generationConfig':config}
         route='/models/'+quote(target.model.removeprefix('models/'),safe='')+(':'+('streamGenerateContent?alt=sse' if protocol.stream else 'generateContent'))

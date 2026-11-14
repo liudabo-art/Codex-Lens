@@ -9,6 +9,8 @@ from .grading import grade_answer, item_result
 from .exam_generators import (shortest_path, schedule, registers, state_machine,
                               dedup_repair, insertion_repair, ledger, interval_records,
                               grouped_shape, sparse_shape)
+from .exam_registry import get_exam_spec
+from .native_exam_generators import CLAUDE_GENERATORS, GEMINI_GENERATORS
 from .protocol import ProbeCase
 from .suites import quality_case
 from .transport import EndpointError
@@ -216,12 +218,19 @@ PROFILES = {
 }
 
 
-def exam_cases(family, samples, seed):
+def exam_cases(family, samples, seed, *, suite_version=None):
     """Yield each of four structures once per skill/tier in each seeded 60-item block."""
-    if (family not in PROFILES or type(samples) is not int or samples not in EXAM_SIZES
+    spec = get_exam_spec(family, suite_version)
+    if (type(samples) is not int or samples not in spec.sizes
             or type(seed) is not int or not 0 <= seed < 2**31):
         raise ValueError('invalid_exam_paper')
-    blueprint = [(kind, level, variant) for kind, variants in zip(EXAM_TASKS, PROFILES[family])
+    if family == 'claude':
+        generators = CLAUDE_GENERATORS
+    elif family == 'gemini':
+        generators = GEMINI_GENERATORS
+    else:
+        generators = PROFILES[family]
+    blueprint = [(kind, level, variant) for kind, variants in zip(spec.task_kinds, generators)
                  for level in (1, 2, 3) for variant in variants]
     order_rng = random.Random(seed)
     seen = set()
@@ -244,7 +253,7 @@ def exam_cases(family, samples, seed):
                     break
             else:
                 raise EndpointError('invalid_synthetic_case')
-            if len(prompt.encode()) > EXAM_MAX_PROMPT_BYTES:
+            if len(prompt.encode()) > spec.max_prompt_bytes:
                 raise EndpointError('invalid_synthetic_case')
             seen.add(prompt)
             yield ExamCase(kind, question_seed, prompt, expected, variant_name), level
@@ -265,7 +274,11 @@ def run_exam(service, monitor, plan, result, *, seed):
 
     samples = plan['sample_count']
     paired = plan['comparison'] == 'paired'
-    family = family_for(monitor.target.model)
+    target_family = family_for(monitor.target.model)
+    family = plan.get('model_family', target_family)
+    spec = get_exam_spec(family, plan.get('suite_version'))
+    if family != target_family:
+        raise ValueError('invalid_exam_paper')
     sides = {source: _side_counts(source, samples) for source in (('relay', 'reference') if paired else ('relay',))}
     sections = {
         (source, task, difficulty): {
@@ -273,24 +286,24 @@ def run_exam(service, monitor, plan, result, *, seed):
             'sample_count': samples // 15, 'completed': 0, 'correct': 0,
             'format_failures': 0, 'format_recovered': 0,
         }
-        for source in sides for task in EXAM_TASKS for difficulty in (1, 2, 3)
+        for source in sides for task in spec.task_kinds for difficulty in (1, 2, 3)
     }
     exam = {'comparison': plan['comparison'], 'submitted': False, 'sides': list(sides.values()),
             'sections': list(sections.values())}
     result.update(
-        exam=exam, suite_version=EXAM_VERSION, model_family=family, task_seed=seed, task_count=samples,
+        exam=exam, suite_version=spec.version, model_family=family, task_seed=seed, task_count=samples,
         sample_count=plan['required_requests'], capability_state='insufficient_data', identity_state='not_tested',
         capability_attempted=0, capability_completed=0, capability_valid=0, capability_correct=0,
         response_count=0, network_failures=0, invalid_responses=0, retry_requests=0, response_issues=[],
     )
-    cases = tuple(exam_cases(family, samples, seed))
+    cases = tuple(exam_cases(family, samples, seed, suite_version=spec.version))
     items = {(question, source): item_result(case, difficulty, question, source)
              for question, (case, difficulty) in enumerate(cases, 1) for source in sides}
     result['item_results'] = list(items.values())
     diagnostics = Counter()
     grading_diagnostics = Counter()
     pairs = []
-    retry_limit = samples // 5
+    retry_limit = spec.retry_requests_per_side(samples)
     batch = service.store.reserve_batch(plan['max_requests'], plan['per_call'])
 
     def read(case, difficulty, source, question):
@@ -298,7 +311,7 @@ def run_exam(service, monitor, plan, result, *, seed):
         section = sections[source, case.kind, difficulty]
         item = items[question, source]
         try:
-            for attempt in range(len(RETRY_DELAYS) + 1):
+            for attempt in range(spec.max_retries_per_item + 1):
                 if not service.store.available(0, 0):
                     raise BudgetExceeded()
                 before = service.progress.get('completed', 0)
@@ -350,7 +363,7 @@ def run_exam(service, monitor, plan, result, *, seed):
                 item.update(error_code=issue, grading_issue=None)
                 if response is not None:
                     result['invalid_responses'] += 1
-                if (issue not in RETRYABLE or attempt == len(RETRY_DELAYS)
+                if (issue not in RETRYABLE or attempt == spec.max_retries_per_item
                         or side['retry_requests'] >= retry_limit):
                     raise EndpointError(issue)
                 service.set_retry_progress({'source_kind': source, 'retry_question': question,

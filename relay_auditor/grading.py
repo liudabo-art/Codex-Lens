@@ -10,6 +10,16 @@ MAX_JSON_CANDIDATES = 8
 _SCALAR = re.compile(r'(?<![\w])(?:"(?:[^"\\]|\\.)*"|true|false|null|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)(?![\w])')
 _SCALAR_SEQUENCE = re.compile(f'(?:{_SCALAR.pattern})(?:\\s+(?:{_SCALAR.pattern}))*')
 SAFE_TEMPLATES = frozenset((
+    'gemini_grid_paths', 'gemini_linear_system', 'gemini_congruence', 'gemini_set_expression',
+    'gemini_stable_sort', 'gemini_histogram_trace', 'gemini_zip_trace', 'gemini_modulo_trace',
+    'gemini_clamp_repair', 'gemini_chunk_repair', 'gemini_filter_repair', 'gemini_rotation_repair',
+    'gemini_time_normalization', 'gemini_unit_conversion', 'gemini_csv_records', 'gemini_ranked_ballot',
+    'gemini_pivot_shape', 'gemini_json_pointer', 'gemini_multilingual_labels', 'gemini_default_shape',
+    'claude_assignment', 'claude_precedence', 'claude_truth_models', 'claude_interval_choice',
+    'claude_alias_trace', 'claude_loop_else', 'claude_slice_trace', 'claude_finally_trace',
+    'claude_lookup_repair', 'claude_window_repair', 'claude_partition_repair', 'claude_merge_repair',
+    'claude_document_revision', 'claude_policy_exception', 'claude_cross_reference', 'claude_event_retraction',
+    'claude_instruction_scope', 'claude_projection', 'claude_null_shape', 'claude_quoted_extract',
     'constraints', 'constraints_multi', 'code', 'code_branch', 'repair', 'repair_edges',
     'structured', 'tool_args', 'document', 'dependency', 'stack', 'slice_repair',
     'tier_repair', 'join', 'policy', 'nested', 'tool_plan', 'shortest_path', 'schedule',

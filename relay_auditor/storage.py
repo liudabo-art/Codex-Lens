@@ -64,7 +64,7 @@ reference_pending reference_key_required reference_unavailable reference_model_u
 deepseek gpt claude qwen glm kimi minimax grok mistral llama document digit dice color weekday coin
 output_limit stream_interrupted empty_answer response_filtered incomplete_output answer_format recovered_format
 code_branch repair_edges constraints_multi
-capability_exam exam-v1 exam-v2 relay_only paired exam_changed exam_unsupported
+capability_exam exam-v1 exam-v2 claude-exam-v1 gemini-exam-v1 relay_only paired exam_changed exam_unsupported
 exam_reasoning exam_code exam_repair exam_information exam_structure
 '''.split())
 STRING_FIELDS = {'model', 'reference_model'}

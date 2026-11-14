@@ -4,7 +4,8 @@ import random
 import threading
 
 from .assessment import VERSION, assessment_comparison, run_assessment
-from .exam import EXAM_VERSION,EXAM_SIZES,run_exam
+from .exam import run_exam
+from .exam_registry import get_exam_spec,is_exam_suite
 from .controller import Monitor
 from .protocol import Protocol
 from .reports import trend
@@ -71,13 +72,17 @@ def _paired_matrix(rng, trials, alpha, sizes=SAMPLE_SIZES):
 
 
 def _wrong(value):
+    if type(value) is bool:
+        return not value
     if type(value) is int:
         return value + 1
     if isinstance(value, str):
         return 'B' if value == 'A' else 'A'
     if isinstance(value, list):
         return [_wrong(value[0]), *value[1:]] if value else [0]
-    if isinstance(value, dict) and value:
+    if isinstance(value, dict):
+        if not value:
+            return {'synthetic_wrong': 0}
         key = next(iter(value))
         return {**value, key: _wrong(value[key])}
     raise ValueError('unsupported_synthetic_answer')
@@ -156,17 +161,21 @@ class _SyntheticExamRound(_SyntheticRound):
         return super()._call(monitor,case,reference=reference,batch=batch)
 
 
-def _exam_histories(seed,family,samples):
+def _exam_histories(seed,family,samples,suite_version):
+    spec=get_exam_spec(family,suite_version)
     target=Target('https://synthetic.invalid/v1','synthetic-only',family+'-synthetic',
-                  Protocol(wire_api='deepseek' if family=='deepseek' else 'responses'))
+                  Protocol(wire_api={'gpt':'responses','deepseek':'deepseek','claude':'anthropic','gemini':'gemini'}[family]))
     monitor=Monitor(target=target,target_id='0'*32)
     for name,fractions in (('stable',(1,.9,1,.9)),('sustained_decline',(1,1,.8,.9)),
                            ('one_failed_round',(1,1,.8,.9))):
         rounds=[]
         for index,fraction in enumerate(fractions):
             result={}
+            retries=spec.retry_requests_per_side(samples)
             plan={'sample_count':samples,'comparison':'relay_only','required_requests':samples,
-                  'max_requests':samples+samples//5,'per_call':6400}
+                  'model_family':spec.family,'suite_version':spec.version,
+                  'max_retry_requests':retries,'max_requests':samples+retries,
+                  'per_call':spec.max_prompt_bytes+target.protocol.max_output_tokens+256}
             runner=_SyntheticExamRound(int(samples*fraction),failed=name=='one_failed_round' and index==3)
             try:
                 run_exam(runner,monitor,plan,result,seed=seed+index*1000)
@@ -184,17 +193,24 @@ def simulate(*, trials=100, seed=20261109, audit_index=1,suite=None,family=None,
         raise ValueError('invalid_simulation')
     if type(audit_index) is not int or not 1 <= audit_index <= 100000:
         raise ValueError('invalid_simulation')
-    if suite not in (None,'exam-v2','assessment-v4') or family not in (None,'gpt','deepseek'):
+    if (suite not in (None,'assessment-v4') and not is_exam_suite(suite)
+            or family not in (None,'gpt','deepseek','claude','gemini')):
         raise ValueError('invalid_simulation')
     family=family or 'gpt'
-    is_exam=suite=='exam-v2'
-    sizes=EXAM_SIZES if is_exam else SAMPLE_SIZES
+    is_exam=is_exam_suite(suite)
+    try:
+        spec=get_exam_spec(family,suite) if is_exam else None
+    except ValueError:
+        raise ValueError('invalid_simulation') from None
+    if not is_exam and family not in ('gpt','deepseek'):
+        raise ValueError('invalid_simulation')
+    sizes=spec.sizes if is_exam else SAMPLE_SIZES
     if samples is not None:
         if type(samples) is not int or samples not in sizes: raise ValueError('invalid_simulation')
         sizes=(samples,)
     alpha = spending_alpha(audit_index)
     return {'schema_version': 1, 'evidence': 'synthetic_simulation', 'real_api_requests': 0,
-            'suite_version': EXAM_VERSION if is_exam else VERSION,'family':family,
+            'suite_version': spec.version if is_exam else VERSION,'family':family,
             'seed': seed, 'trials_per_cell': trials, 'audit_index': audit_index,
             'alpha': alpha, 'reference_accuracy': REFERENCE_ACCURACY,
             'scenario_parameters': {name: {'regression_probability': r, 'improvement_probability': i}
@@ -203,4 +219,4 @@ def simulate(*, trials=100, seed=20261109, audit_index=1,suite=None,family=None,
                                              'relay_when_incorrect': incorrect}
                                        for name, (ref, correct, incorrect) in MISSINGNESS.items()},
             'paired': list(_paired_matrix(random.Random(seed), trials, alpha,sizes)),
-            'no_reference': dict(_exam_histories(seed,family,sizes[0]) if is_exam else _standalone_histories(seed,family))}
+            'no_reference': dict(_exam_histories(seed,family,sizes[0],spec.version) if is_exam else _standalone_histories(seed,family))}

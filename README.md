@@ -6,7 +6,9 @@
 
 Codex Lens evaluates relay APIs with reproducible tasks. Run a standalone capability check, or compare the relay with a matching official model. Reports distinguish observed scores, service failures and the strength of the evidence.
 
-**0.2.0 实验性桌面预览 · 巡检 `assessment-v4`／考试 `exam-v2` · 匿名接口 v2。** 已有合成验证和本地 Windows x64 便携候选记录；各平台发布构建以 CI 和 Release 资产为准。型号级误报率与检出率仍待真实校准。
+**0.3.0 实验性桌面预览 · 四家完整考试 · 匿名接口 v2。** OpenAI/GPT/Codex、Anthropic/Claude、DeepSeek、Google/Gemini 均支持手动 120／180 题考试和匹配官方同题对照。各平台发布构建以 CI 和 Release 资产为准；型号级误报率与检出率仍待真实校准。
+
+**本版重点：** Claude／Gemini 独立试卷、确切型号参数匹配、考试确认校验，以及可复算成绩和失败结果的校准工具。OpenAI／Anthropic 并列优先，当前无已校准型号。旧 v0.2.0 标签及成绩保留。[支持矩阵与证据边界](docs/FOUR_FAMILY_DETECTION.md)
 
 ![检测工作台，使用合成示例](assets/workbench-demo.png)
 
@@ -16,7 +18,7 @@ Codex Lens evaluates relay APIs with reproducible tasks. Run a standalone capabi
 | --- | --- |
 | 中转单侧体检 | 从 CC Switch 或 Codex++ 读取供应商配置，选择目标和模型。默认测 10 题，显示分项、无法评分原因和可比历史。 |
 | 官方同题对照 | 选择供应商与地区并填写官方 API Key。匹配型号和设置后，默认两边各答 10 题。符合条件时可预览预算，再用 40 对新题复核。 |
-| 完整能力考试 | GPT/Codex 与 DeepSeek 可选 120 或 180 题，同型号官方对照使用同一批题。整场交卷后展示总分、分项与匿名逐题证据。 |
+| 完整能力考试 | GPT/Codex、Claude、DeepSeek、Gemini 可选 120 或 180 题，同型号官方对照使用同一批题。整场交卷后展示总分、分项与匿名逐题证据。 |
 | 断连恢复 | 手动检测和复核在失败的一侧重试原题，最多两次。同题连续三次失败会结束本轮并保留已有成绩。每次额外请求计入预算。 |
 | 历史与离线手册 | 历史支持单条、批量或全部删除，保留用量、预算和已登记参考。窗口内提供 13 章、12 图离线操作手册。 |
 | 报告与用量 | 桌面、历史与匿名 HTML 共用结论，不保存原始回答。官方登录、中转供应商和未知来源分开，业务用量、探针与参考请求分别统计。 |
@@ -25,7 +27,7 @@ Codex Lens evaluates relay APIs with reproducible tasks. Run a standalone capabi
 
 ## 桌面下载
 
-[GitHub Releases](https://github.com/liudabo-art/Codex-Lens/releases) · [平台选择与安装](docs/INSTALLATION.md) · [0.2.0 说明](docs/RELEASE_NOTES.md)
+[GitHub Releases](https://github.com/liudabo-art/Codex-Lens/releases) · [平台选择与安装](docs/INSTALLATION.md) · [0.3.0 说明](docs/RELEASE_NOTES.md)
 
 ## 快速开始
 

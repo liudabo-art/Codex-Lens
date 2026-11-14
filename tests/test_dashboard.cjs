@@ -2,6 +2,30 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const ui = require('../relay_auditor/web/app.js');
 
+test('effort choices follow exact reviewed model and protocol', () => {
+  const catalog={'claude-opus-4-6':{anthropic:['none','low','medium','high','max']}};
+  assert.deepEqual(ui.reasoningOptions('', 'claude-opus-4-6','anthropic',catalog).map(o=>o.value),
+    ['', 'none','low','medium','high','max']);
+  assert.deepEqual(ui.reasoningOptions('', 'claude-opus-4-6','chat',catalog).map(o=>o.value),['']);
+  assert.deepEqual(ui.reasoningOptions('', 'gpt-unreviewed','responses',catalog).map(o=>o.value),['']);
+});
+
+test('unsupported saved effort stays visible instead of silently changing to default', () => {
+  const options=ui.reasoningOptions('xhigh','claude-sonnet-4-5','anthropic',{});
+  assert.equal(options[1].value,'xhigh');
+  assert.equal(options[1].disabled,true);
+  assert.match(options[1].label,/未核实/);
+});
+
+test('Gemini budget-only model and DeepSeek verified aliases retain exact semantics', () => {
+  const catalog={'gemini-2.5-flash':{gemini:['none']},'deepseek-flash':{deepseek:['none','low','high','max']}};
+  assert.deepEqual(ui.reasoningOptions('','gemini-2.5-flash','gemini',catalog).map(o=>o.value),['','none']);
+  const alias=ui.reasoningOptions('xhigh','deepseek-flash','deepseek',catalog).find(o=>o.value==='xhigh');
+  assert.equal(alias.disabled,false);
+  assert.match(alias.label,/兼容别名.*high/);
+  assert.deepEqual(ui.reasoningOptions('','deepseek-unknown','deepseek',catalog).map(o=>o.value),['']);
+});
+
 test('clear-all removes cached cards outside the visible history after a refresh failure', () => {
   const state={history:[{record_id:'visible'}],history_reports:[{}],targets:[{source_alias:'relay-1',last_result:{record_id:'older'}}],report_cards:{'relay-1':{headline:'old'}}};
   const next=ui.pruneDeletedHistory(state,{all:true},0);
@@ -67,7 +91,7 @@ test('quality and reasoning estimates include all reference calls',()=>{
 });
 test('custom names and UI-only model mappings never enter browser exports', () => {
   const result = ui.exportSnapshot({schema_version:1,history:[],display_names:{'relay-1':'PRIVATE-NAME'},
-    model_choices:{'relay-1':['gpt-test']},catalog_models:{},catalog_reasoning:{},desktop:true,
+    model_choices:{'relay-1':['gpt-test']},reasoning_catalog:{},catalog_models:{},catalog_reasoning:{},catalog_wires:{},desktop:true,
     official_presets:[{id:'openai',label:'OpenAI'}],history_reports:[{headline:'shared copy'}]});
   assert.deepEqual(result,{schema_version:1,history:[]});
 });

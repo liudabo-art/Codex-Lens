@@ -1,8 +1,8 @@
 # 安装 Codex Lens / Install Codex Lens
 
-本指南适用于 0.2.0 实验性桌面预览。下表是构建目标；公开状态与可用下载以 [GitHub Releases](https://github.com/liudabo-art/Codex-Lens/releases) 的 Assets 为准。[版本说明](RELEASE_NOTES.md)列出五个目标架构的完整文件名。若没有对应平台的资产，可从本仓库构建。运行前在同一 Release 下载 `SHA256SUMS.txt` 并核对所选包的 SHA-256。
+本指南适用于 0.3.0 实验性桌面预览。下表是构建目标；公开状态与可用下载以 [GitHub Releases](https://github.com/liudabo-art/Codex-Lens/releases) 的 Assets 为准。[版本说明](RELEASE_NOTES.md)列出五个目标架构的完整文件名。若没有对应平台的资产，可从本仓库构建。运行前在同一 Release 下载 `SHA256SUMS.txt` 并核对所选包的 SHA-256。
 
-This guide covers the experimental 0.2.0 desktop preview. The [release notes](RELEASE_NOTES.md) list the exact filenames for all five target architectures. Use the assets actually published on GitHub Releases and verify the selected package against `SHA256SUMS.txt` from the same Release. Build from source if your target package is unavailable.
+This guide covers the experimental 0.3.0 desktop preview. The [release notes](RELEASE_NOTES.md) list the exact filenames for all five target architectures. Use the assets actually published on GitHub Releases and verify the selected package against `SHA256SUMS.txt` from the same Release. Build from source if your target package is unavailable.
 
 | 系统 / System | 候选格式 / Package | 使用方式 / How to open |
 | --- | --- | --- |
@@ -24,9 +24,9 @@ Close the old version before upgrading. Extract portable packages into a new dir
 
 Old history in the same desktop data directory receives stable record IDs and keeps its original suite version and marks. Source and packaged desktop apps on the same platform share the user's desktop data directory. The CLI defaults to the repository's `.relay-data/`, whose history is not automatically migrated into the desktop directory. Keys are session-only by default; Windows offers explicit target-owned vault storage. Re-enter unsaved keys after restarting. Periodic work and queues restart disabled.
 
-首次打开后选择或导入目标，再按需添加官方同型号参考。120／180 题能力考试需要单独预览与确认预算；默认日预算不够整场考试。左侧「操作手册」提供随包离线教程与合成界面截图。所有模型结论仍待真实校准。
+首次打开后选择或导入目标，再按需添加官方同型号参考。GPT/Codex、Claude、DeepSeek 和 Gemini 支持 120／180 题能力考试，需要单独预览与确认预算；默认日预算不够整场考试。推理选项按确切型号和协议显示，旧设置不支持时须手动选择后重新预览。左侧「操作手册」提供随包离线教程与合成界面截图。所有模型结论仍待真实校准。
 
-On first launch, add or import a target and optionally configure a matching official reference. A 120/180-question capability exam needs its own budget preview and confirmation; the default daily budget is insufficient for a full exam. Open **Operation Manual** in the sidebar for the packaged offline tutorial and synthetic interface screenshots. Model findings still await real calibration.
+On first launch, add or import a target and optionally configure a matching official reference. GPT/Codex, Claude, DeepSeek and Gemini support 120/180-question exams, each requiring its own budget preview and confirmation; the default daily budget is insufficient for a full exam. Reasoning options follow the exact model and protocol. Unsupported saved settings need an explicit choice and a fresh preview. Open **Operation Manual** in the sidebar for the packaged offline tutorial and synthetic interface screenshots. Model findings still await real calibration.
 
 ## 从源码启动 Windows 桌面端 / Windows source desktop
 

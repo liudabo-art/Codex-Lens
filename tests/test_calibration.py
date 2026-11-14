@@ -79,9 +79,9 @@ class CalibrationTests(unittest.TestCase):
 
     def test_extended_context_control_uses_specialist_suite_and_clips_only_one_side(self):
         from relay_auditor import assessment,calibration
-        plan=calibration.freeze('gpt-primary','gpt-alternative',Protocol(),samples=2,scope='extended')
-        primary=Target('https://api.openai.com/v1','key','gpt-primary',Protocol(),role='reference')
-        alternative=Target('https://api.openai.com/v1','key','gpt-alternative',Protocol(),role='reference')
+        plan=calibration.freeze('gpt-5.6-sol','gpt-5.6-terra',Protocol(),samples=2,scope='extended')
+        primary=Target('https://api.openai.com/v1','key','gpt-5.6-sol',Protocol(),role='reference')
+        alternative=Target('https://api.openai.com/v1','key','gpt-5.6-terra',Protocol(),role='reference')
         prompts=[]
         class Client(FakeClient):
             def complete(self,case):
@@ -98,7 +98,7 @@ class CalibrationTests(unittest.TestCase):
                 self.assertEqual(row['suite_version'],plan['specialist_context_suite'])
                 self.assertEqual(row['requests'],4)
                 self.assertEqual(row['valid_pairs'],2)
-                self.assertEqual({(model,kind) for model,kind,_ in prompts},{('gpt-primary','context')})
+                self.assertEqual({(model,kind) for model,kind,_ in prompts},{('gpt-5.6-sol','context')})
                 self.assertLess(prompts[0][2],prompts[1][2]/2)
                 self.assertGreater(prompts[2][2],prompts[3][2]*2)
             finally:

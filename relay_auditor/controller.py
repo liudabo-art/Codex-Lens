@@ -19,6 +19,7 @@ from .transport import APIClient, Target, EndpointError
 from .models import display_name as checked_name, model_choices
 from .families import family_for, REFERENCE_FAMILY, usable_reference, reasoning_reference, reference_identity, reference_issue
 from .planning import EXAM_MODE, exam_available, exam_plan
+from .model_capabilities import supports_parameters, reasoning_catalog
 
 REFERENCE_BLOCKERS = frozenset(('authentication_failed', 'unsupported_parameters', 'reference_model_unavailable'))
 
@@ -351,16 +352,21 @@ class Service:
                 'official_presets': self.official_presets(),
                 'display_names':{a:m.display_name for a,m in self.monitors.items()},
                 'model_choices':{a:m.models for a,m in self.monitors.items()},
+                'reasoning_catalog':reasoning_catalog(),
                 'catalog_models':{row['source_alias']:self.catalog.get(row['source_alias']).models
                                   for row in self.catalog.summary()} if self.catalog else {},
                 'catalog_reasoning':{row['source_alias']:self.catalog.get(row['source_alias']).reasoning_effort
                                     for row in self.catalog.summary()} if self.catalog else {},
+                'catalog_wires':{row['source_alias']:self.catalog.get(row['source_alias']).wire_api
+                                 for row in self.catalog.summary()} if self.catalog else {},
                 'vault_available':bool(self.profiles and self.profiles.vault.available),'settings_status':self.settings_status}
 
     @staticmethod
     def official_presets():
         from .official import PRESETS
-        return [{'id': key, 'label': preset.label} for key, preset in PRESETS.items()]
+        priority = {'openai':0, 'anthropic':1, 'deepseek':2, 'google':3}
+        return [{'id': key, 'label': preset.label} for key, preset in
+                sorted(PRESETS.items(), key=lambda item: priority.get(item[0], 4))]
 
     def _disable_target(self, monitor):
         monitor.enabled = False
@@ -481,6 +487,8 @@ class Service:
                 raise ValueError('busy')
             monitor = self.monitors[alias]
             if not monitor.credential_ready: raise ValueError('credential_required')
+            if not supports_parameters(monitor.target.model, monitor.target.protocol):
+                raise ValueError('unsupported_parameters')
             if automatic and not self.due(alias):
                 return None
             monitor.cancel.clear()
@@ -518,7 +526,17 @@ class Service:
         budget = self.store.budget()
         if (budget['request_limit'], budget['token_limit']) != approval.limits:
             return 'exam_changed'
-        return exam_plan(monitor, approval.plan['sample_count'], approval.plan['comparison'], budget)['status']
+        try:
+            current = exam_plan(monitor, approval.plan['sample_count'], approval.plan['comparison'], budget)
+        except ValueError:
+            return 'exam_changed'
+        fixed = ('model_family', 'suite_version', 'paper_spec_id', 'sample_count', 'comparison',
+                 'required_requests', 'max_retry_requests', 'max_requests', 'max_retries_per_item',
+                 'per_call', 'estimated_tokens', 'model', 'reasoning_effort', 'max_output_tokens',
+                 'reference_model', 'reference_reasoning_effort', 'reference_max_output_tokens')
+        if any(current.get(key) != approval.plan.get(key) for key in fixed):
+            return 'exam_changed'
+        return current['status']
 
     def _confirm_exam(self, monitor, samples, plan_id):
         approval = self.exam_previews.pop(plan_id, None) if isinstance(plan_id, str) else None
@@ -540,6 +558,8 @@ class Service:
             if samples is not None and (type(samples) is not int or not 1<=samples<=200): raise ValueError('invalid_samples')
             monitor=self.monitors[alias]
             if not monitor.credential_ready: raise ValueError('credential_required')
+            if not supports_parameters(monitor.target.model, monitor.target.protocol):
+                raise ValueError('unsupported_parameters')
             approval = None
             if mode == EXAM_MODE:
                 if automatic or seed is not None or review_of is not None:
@@ -596,6 +616,9 @@ class Service:
                 job['state']='cancelled'; continue
             if job.get('review_of') and (self._review_candidate(monitor) or {}).get('job_id') != job['review_of']:
                 job['state'] = 'cancelled'
+                continue
+            if not supports_parameters(monitor.target.model, monitor.target.protocol):
+                job['state'] = 'unsupported_parameters'
                 continue
             monitor=self._begin(alias,job['mode'])
             self.current_job=job_id; job['state']='running'
@@ -667,7 +690,7 @@ class Service:
                 return {**plan, 'exam_plan_id': plan_id}
             if mode == 'assessment':
                 plan = assessment_plan(m, samples)
-                if not self.store.available(plan['required_requests'], plan['estimated_tokens']):
+                if plan['status'] == 'ok' and not self.store.available(plan['required_requests'], plan['estimated_tokens']):
                     plan['status'] = 'budget_exhausted'
                 return plan
             reference = reasoning_reference(m) if mode == 'reasoning' else usable_reference(m)
@@ -695,6 +718,8 @@ class Service:
         target = usable_reference(monitor) if reference else monitor.target
         if target is None or (reference and owner.reference_error):
             raise EndpointError('reference_required')
+        if not supports_parameters(target.model, target.protocol):
+            raise EndpointError('unsupported_parameters')
         ticket = self.store.reserve(len(case.prompt.encode()) + target.protocol.max_output_tokens + 256, target.role, batch=batch)
         started=time.monotonic()
         try:

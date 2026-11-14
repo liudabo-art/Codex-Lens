@@ -8,12 +8,16 @@ from .protocol import Protocol
 from .storage import checked_path
 from .prompts import hidden
 
-def command(args,store):
-    protocol=Protocol(wire_api=args.wire_api,stream=args.stream,reasoning_effort=args.reasoning_effort)
-    if args.command=='calibration-init':
+def command(args,store=None):
+    if args.command in ('calibration-init','calibration-plan'):
+        protocol=Protocol(wire_api=args.wire_api,stream=args.stream,reasoning_effort=args.reasoning_effort,
+                          max_output_tokens=args.max_output_tokens if args.max_output_tokens is not None else 2048)
         manifest=freeze(args.primary_model,args.alternative_model,protocol,samples=args.samples,trials=args.trials,
                         seed=args.seed,scope=args.study_scope,
                         audit_index=args.calibration_audit_index,suite=args.suite,family=args.family)
+        if args.command=='calibration-plan':
+            from .calibration_readiness import preview
+            return preview(manifest,request_limit=args.request_limit,token_limit=args.token_limit)
         study_id=manifest['manifest_hash'][:32]; root=checked_path(store.directory/'studies'/study_id)
         root.mkdir(parents=True,exist_ok=True)
         with checked_path(root/'manifest.json').open('x',encoding='utf-8') as output: json.dump(manifest,output,indent=2)
@@ -26,6 +30,15 @@ def command(args,store):
     lock=checked_path(root/'collect.lock'); lock.open('x').close()
     try:
         manifest,records=read_study(root); protocol=Protocol(**manifest['protocol'])
+        selected={'family':manifest['family'],'suite':manifest['suite_version'],
+                  **{field:manifest[field] for field in ('samples','seed','primary_model','alternative_model')}}
+        if (any(getattr(args,field,None) is not None and getattr(args,field)!=value
+                for field,value in selected.items())
+            or getattr(args,'wire_api_explicit',False) and args.wire_api!=protocol.wire_api
+            or args.stream and not protocol.stream
+            or args.reasoning_effort is not None and args.reasoning_effort!=protocol.reasoning_effort
+            or args.max_output_tokens is not None and args.max_output_tokens!=protocol.max_output_tokens):
+            raise ValueError('study_targets_mismatch')
         if args.scenario not in manifest['scenarios']:
             raise ValueError('invalid_trial')
         store.set_limits(args.request_limit,args.token_limit)

@@ -316,7 +316,8 @@ class AssessmentTests(unittest.TestCase):
 
     def test_deepseek_wire_payload_and_reason_codes(self):
         captured = []
-        target = Target('https://api.deepseek.com', 'synthetic', 'deepseek-v4-flash',
+        # Current reviewed ID; the payload and output-limit assertions are unchanged.
+        target = Target('https://api.deepseek.com', 'synthetic', 'deepseek-flash',
                         Protocol(wire_api='deepseek', reasoning_effort='none'), role='reference')
 
         def open_request(request, **kwargs):

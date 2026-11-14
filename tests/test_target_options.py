@@ -133,11 +133,12 @@ class TargetOptionTests(unittest.TestCase):
 
     def test_extended_reasoning_is_sent_in_both_protocols(self):
         for wire in ('responses','chat'):
-            for effort in ('none','minimal','xhigh','max'):
+            for model,effort in (('gpt-5.6-sol','none'),('gpt-5','minimal'),
+                                 ('gpt-5.6-sol','xhigh'),('gpt-5.6-sol','max')):
                 captured=[]
                 def request(req,timeout):
                     captured.append(json.loads(req.data)); return Response(b'{"output_text":"7"}')
-                APIClient(Target('https://relay.example/v1','key','gpt-test',Protocol(wire_api=wire,reasoning_effort=effort)),request).complete(make_case('digit',0))
+                APIClient(Target('https://relay.example/v1','key',model,Protocol(wire_api=wire,reasoning_effort=effort)),request).complete(make_case('digit',0))
                 self.assertEqual(captured[0].get('reasoning',{}).get('effort') if wire=='responses' else captured[0]['reasoning_effort'],effort)
 
     def test_http_one_click_import_and_explicit_screen_use_selected_parameters(self):
@@ -150,8 +151,8 @@ class TargetOptionTests(unittest.TestCase):
         profiles = Profiles(self.root/'profiles', vault=vault)
         self.service = Service(self.store, client_factory=FakeClient, profiles=profiles)
         file = self.root/'source'/'settings.json'; file.parent.mkdir()
-        config = 'model="gpt-test"\nmodel_provider="relay"\nmodel_reasoning_effort="high"\n[model_providers.relay]\nbase_url="https://relay.example/v1"\nexperimental_bearer_token="PRIVATE-KEY"'
-        file.write_text(json.dumps({'relayProfiles':[{'id':'private','configContents':config,'modelList':'gpt-test\ngpt-second'},
+        config = 'model="gpt-5.6-sol"\nmodel_provider="relay"\nmodel_reasoning_effort="high"\n[model_providers.relay]\nbase_url="https://relay.example/v1"\nexperimental_bearer_token="PRIVATE-KEY"'
+        file.write_text(json.dumps({'relayProfiles':[{'id':'private','configContents':config,'modelList':'gpt-5.6-sol\ngpt-5.6-terra'},
                                                     {'id':'official','relayMode':'official'}]}),encoding='utf-8')
         actions=DesktopActions(self.service,lambda *args:None,lambda path:None,lambda:None)
         server=make_server(self.service,desktop=actions)
@@ -166,20 +167,20 @@ class TargetOptionTests(unittest.TestCase):
         with patch('relay_auditor.desktop_actions.locate_catalog',return_value=file):
             self.assertEqual(post('desktop/catalog',{'source':'codexplusplus','auto':True})[0],200)
         catalog_id=self.service.catalog.catalog_id
-        status,result=post('catalog_select',{'catalog_id':catalog_id,'source_alias':'catalog-1','model':'gpt-second',
+        status,result=post('catalog_select',{'catalog_id':catalog_id,'source_alias':'catalog-1','model':'gpt-5.6-terra',
                                             'display_name':'合成测试','reasoning_effort':'xhigh','run_now':True})
         self.assertEqual(status,200)
         deadline=time.monotonic()+3
         while self.service.busy and time.monotonic()<deadline: time.sleep(0.01)
         monitor=self.service.monitors[result['source_alias']]
-        self.assertEqual(monitor.target.model,'gpt-second')
+        self.assertEqual(monitor.target.model,'gpt-5.6-terra')
         self.assertEqual(monitor.target.protocol.reasoning_effort,'xhigh')
         self.assertFalse(monitor.enabled)
         self.assertEqual(self.store.budget()['requests'],3)
         self.assertNotIn('合成测试',json.dumps(self.store.history(),ensure_ascii=False))
         self.assertEqual(post('catalog_select',{'catalog_id':catalog_id,'source_alias':'catalog-2','model':'gpt-test','run_now':True})[0],400)
         status, remembered = post('catalog_select', {'catalog_id':catalog_id, 'source_alias':'catalog-1',
-                                                       'model':'gpt-second', 'display_name':'合成保存导入',
+                                                       'model':'gpt-5.6-terra', 'display_name':'合成保存导入',
                                                        'save_credentials':True})
         self.assertEqual(status,200)
         restored = Service(self.store, client_factory=FakeClient, profiles=profiles)

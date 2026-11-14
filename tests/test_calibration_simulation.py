@@ -5,6 +5,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from relay_auditor import cli
+from relay_auditor.simulation import simulate
 
 
 def run_offline():
@@ -19,6 +20,14 @@ def run_offline():
 
 
 class SimulationTests(unittest.TestCase):
+    def test_gemini_empty_counter_answer_does_not_abort_a_valid_seed(self):
+        report = simulate(family='gemini', suite='gemini-exam-v1', samples=120, trials=1, seed=109)
+        self.assertEqual((report['family'], report['suite_version'], report['real_api_requests']),
+                         ('gemini', 'gemini-exam-v1', 0))
+        decline = report['no_reference']['sustained_decline']['rounds']
+        self.assertEqual([row['correct'] for row in decline], [120, 120, 96, 108])
+        self.assertTrue(all(row['submitted'] for row in decline))
+
     def test_simulates_each_scenario_and_sample_budget_without_loading_local_data(self):
         status, raw = run_offline()
         self.assertEqual(status, 0)

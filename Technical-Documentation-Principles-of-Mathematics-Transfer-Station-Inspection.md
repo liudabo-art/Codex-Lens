@@ -1,5 +1,11 @@
 # 中转模型检测的技术与数学原理
 
+0.3.0 研究工具保留匿名双侧绝对成绩计数及固定失败证据，分别计算先导／验证的完卷率、无法判断比例和复考成绩分布。复考分布只纳入完整且有成绩证据的试验，标准差采用样本公式；缺少旧计数时不从配对分差反推、不补零。描述性统计不改变原检测判定，也不证明真实准确率，详见[方法与分母](docs/METHODS.md#m3-score-and-failure-evidence--成绩波动与失败证据)。
+
+复考成绩 $x_i=100a_i/N$ 的样本标准差为 $s=\sqrt{\sum_i(x_i-\bar{x})^2/(n-1)}$，只在至少两场有完整成绩证据时计算；它不是真实能力的置信区间。部分卷校验也保留配对边际：设双方完成题数为 $C_r,C_t$、正确题数为 $a,b$、有效配对为 $V$、仅官方答对和仅目标答对分别为 $R,I$，则共同答对数 $B$ 必须同时满足 $\max(0,a-R-(C_r-V),b-I-(C_t-V))\le B\le\min(V-R-I,a-R,b-I)$，且 $\max(0,C_r+C_t-N)\le V\le\min(C_r,C_t)$。完整卷退化为 $a-b=R-I$。这些规则核对本地记录是否自洽，不独立证明供应商或实际模型身份。
+
+**0.3.0 四家检测：** OpenAI 与 Anthropic 并列 P0，DeepSeek 与 Gemini 为 P1。统一家族试卷注册表连接预估、执行、校准、模拟和逐题重建；Claude/Gemini 使用独立题目及答案程序，不重算旧卷。参数按确切型号和协议验证，未核实型号仅提供默认设置，已知不支持或实际等价的研究变化配置在冻结前拒绝。真实区分度仍待独立实测，软件验收不构成型号认证。[四家技术说明与支持矩阵](docs/FOUR_FAMILY_DETECTION.md)
+
 **English summary.** Relay Auditor runs reproducible synthetic tasks against a relay and, when configured, a compatible official reference. It separates observed answer quality, response reliability, optional behavioral evidence, and changes in the target’s history. A complete paired comparison uses a one-sided exact McNemar test and a minimum observed effect. Controlled calibration uses frozen scenarios and independent validation seeds. Results are experimental and apply to the sampled tasks and settings. See the [method notes](docs/METHODS.md) and [contribution guide](docs/EXTENDING.md).
 
 ## 1. 检测对象与证据范围
@@ -9,7 +15,7 @@
 ```mermaid
 flowchart LR
     Target["中转目标和可选官方参考"] --> Plan["型号与参数匹配、预算预检"]
-    Plan --> Cases["评估 `assessment-v4` 合成题"]
+    Plan --> Cases["assessment-v4 巡检或对应家族完整试卷"]
     Cases --> Replies["按侧调用、完整性判断与有限重试"]
     Replies --> Scores["确定性评分与同题检验"]
     Scores --> Report["匿名快照 v2、历史、桌面与 HTML"]
@@ -35,9 +41,11 @@ flowchart LR
 
 Responses 流在收到明确结束事件后结算。完整结束、服务端明确返回的输出上限、连接中断分别处理。断流产生的片段不参与评分。手动检测或复核在连接失败时保持同一题目、模型和推理设置，只重试失败的一侧。最多两次额外请求，同一题第三次失败时中止本轮并保留此前结果。认证失败、参数不支持与明确的输出限制直接提示。
 
-基础题量预留预算，每次额外尝试从当日余量单独扣减。报告将请求重试次数与题目分母分开，官方参考和中转用量分别记录。周期检测按固定请求计划执行。校准的默认兼容路径不重试；显式选择 `assessment-v4` 或 `exam-v2` 时按冻结的重试策略及上限执行，考试预留全卷基础和重试额度。 [检测引擎](relay_auditor/assessment.py) · [传输层](relay_auditor/transport.py)
+基础题量预留预算，每次额外尝试从当日余量单独扣减。报告将请求重试次数与题目分母分开，官方参考和中转用量分别记录。周期检测按固定请求计划执行。校准的默认兼容路径不重试；显式选择 `assessment-v4` 或已注册考试题集时按冻结的重试策略及上限执行，考试预留全卷基础和重试额度。 [检测引擎](relay_auditor/assessment.py) · [传输层](relay_auditor/transport.py)
 
-### 能力考试 exam-v2
+### 各家族完整能力考试
+
+GPT/Codex 与 DeepSeek 使用既有 `exam-v2`，保留题目、答案和种子映射；Claude 使用 `claude-exam-v1`，Gemini 使用 `gemini-exam-v1`。各家族有独立蓝图和答案校验，同一卷型共享下述配额、交卷和报告规则。不同家族原始分数不构成跨家族排名。注册表的 `paper_spec_id` 是完整试卷规格的哈希，确认绑定型号、设置及预算；条件变化须重新预览。[注册表](relay_auditor/exam_registry.py) · [原生家族生成器](relay_auditor/native_exam_generators.py)
 
 试卷把多步推理、代码追踪、边界纠错、信息整合与结构化指令各分为三个难度层。每 60 题的区块在每个题型与难度层配置四题，四种结构各一题，随后按种子打散。标准卷和加长卷分别使用两个和三个区块。两侧使用同一题序，交替先请求的一侧。
 
@@ -107,13 +115,13 @@ $$
 
 ## 5. 真实校准与统计验收
 
-源码校准工具在采样前冻结关键代码的 SHA-256、主型号、替代型号、协议设置、种子、场景、判定序号、样本量和验收门槛。采样端点按家族固定为 OpenAI 或 DeepSeek 官方 API。评估场景复用桌面 `assessment-v4`，考试场景复用 `exam-v2` 的出题、评分、重试与判定。研究固定某个 $\alpha_j$，默认 $j=1$。不同日序号、家族、接口或题库需要各自的证据。 [校准实现](relay_auditor/calibration.py) · [命令说明](docs/METHODS.md)
+源码校准工具在采样前冻结关键代码的 SHA-256、主型号、替代型号、协议设置、种子、场景、判定序号、样本量和验收门槛。采样端点按家族固定为 OpenAI、Anthropic、DeepSeek 或 Google 官方 API。评估场景复用桌面 `assessment-v4`，考试场景复用对应家族已注册题集的出题、评分、重试与判定。Claude/Gemini 当前研究仅开放正常与完整替换两个基础场景；旧原生巡检研究保留默认推理／温度限制，原生考试允许已核实参数。研究固定某个 $\alpha_j$，默认 $j=1$。不同日序号、家族、接口或题库需要各自的证据。旧冻结研究使用对应源码复现，源码变更时重新初始化，不重写旧清单或放宽哈希。 [校准实现](relay_auditor/calibration.py) · [命令说明](docs/METHODS.md)
 
 | 场景 | 对照设置 |
 | --- | --- |
 | 正常 `healthy` | 两侧均使用主型号与相同协议 |
 | 完整替换 `substitution` | 参考侧为主型号，测试侧每次使用指定替代型号 |
-| 推理档位变化 `reasoning_changed` | 扩展场景。测试侧请求指定较低档位 |
+| 推理档位变化 `reasoning_changed` | GPT/DeepSeek 扩展场景。测试侧请求冻结的显式变化设置；不保证一定更低或更弱 |
 | 上下文截断 `context_truncated` | 扩展场景。用单独标记的 `context-v1` 截断控制 |
 | 混合路由 `mixed_10` / `mixed_30` / `mixed_50` | 扩展场景。按冻结概率及随机种子切换测试侧型号 |
 
@@ -143,8 +151,12 @@ python -I -S -B run.py demo
 入门见 [项目介绍](README.md)，扩展接口、兼容性约定和贡献检查见 [贡献指南](docs/EXTENDING.md)。
 # 新版质量实现说明
 
-当前本地候选的 `exam-v2` 与 `assessment-v4` 共用有界确定性评分器。唯一 JSON 提取独立于标准答案选择，结构校验后才比较内容；歧义、重复键、缺少字段、类型错误和解析边界分别记录。考试仍要求完整交卷，并保留原有逐题、逐侧重试及配对检验条件。匿名 `item_results` 可以复算分项与次数，历史记录按原题集版本展示。
+0.3.0 的已注册考试题集与 `assessment-v4` 共用有界确定性评分器。唯一 JSON 提取独立于标准答案选择，结构校验后才比较内容；歧义、重复键、缺少字段、类型错误和解析边界分别记录。考试仍要求完整交卷，并保留原有逐题、逐侧重试及配对检验条件。匿名 `item_results` 可以复算分项与次数，历史记录按原题集版本展示。
 
 四结构题集为五类能力、三个难度提供固定分层，每个 60 题区块各抽一份结构。独立参考算法由公开题目输入重新求解，软件一致性与真实区分度分别验证。校准工具显式冻结家族、考试规格、型号、官方接口、协议、输出上限、评分器和重试策略，沿用独立先导、跨日期验证及精确二项区间。方法达标仍需人工复核，不自动提升为已校准型号。
+
+源码研究工具在汇总考试先导前，按冻结试卷重新验证匿名逐题身份和请求／配对总计。按模板与难度记录双方都对、都错、参考单侧答对和反向改善，描述性分差使用有效同题配对作分母；单侧正确率另有其自身分母。格式失分沿用考试零分语义，服务故障和未作答保持未知。旧形状记录缺少逐题证据时保留“证据不可用”，不补成零分，也不据此宣称题型区分度已经验证。详情见[先导证据规则](docs/METHODS.md#pilot-evidence-and-template-diagnostics--先导证据与模板诊断)。
+
+源码 `calibration-plan` 复用冻结请求计划和生产 token 边界，输出单次、先导和分段验证的预留，不读取账户、凭据或数据库。默认预算建议覆盖完整单次试验及重试，待用户确认；预算停止记录 `stop_reason=budget_exhausted` 并保留已有进度。Claude／Gemini 完整考试以各自原生接口及独立题集建立基础场景研究，允许已核实的确切型号参数；旧原生巡检研究保留默认推理／温度限制。研究软件可用不代表真实校准完成。[具体方案与预算](docs/CALIBRATION_PILOT_PLAN.md)
 
 稳定 `record_id` 用于历史删除；删除仅作用于报告，不重置实际用量或统计判定序号。离线图文手册及界面使用同一内容源，详见[操作手册](docs/USER_MANUAL.md)与[接入契约](docs/EXTENDING.md)。

@@ -132,17 +132,9 @@ def reference_target(preset_id, relay_target, key, model):
 def _supports_parameters(preset, protocol, model):
     effort = protocol.reasoning_effort
     temperature = protocol.temperature
-    if preset.family == 'gpt':
-        if model == 'gpt-5.6-sol' and (effort == 'minimal' or temperature is not None and effort != 'none'):
-            return False
-        return temperature is None or effort in (None, 'none')
-    if preset.family == 'claude':
-        return (effort in (None, 'none', 'low', 'medium', 'high', 'max')
-                and (temperature is None or temperature <= 1 and effort in (None, 'none')))
-    if preset.family == 'gemini':
-        return effort in (None, 'none', 'minimal', 'low', 'medium', 'high')
-    if preset.family == 'deepseek':
-        return effort in (None, 'none', 'low', 'high', 'max') and (temperature is None or effort == 'none')
+    if preset.family in ('gpt', 'claude', 'gemini', 'deepseek'):
+        from .model_capabilities import supports_parameters
+        return supports_parameters(model, protocol) if model else effort is None and temperature is None
     if preset.family == 'minimax':
         return temperature is None and (effort is None or model == 'MiniMax-M3.1-Flash'
                                         and effort in ('low', 'medium', 'high', 'xhigh', 'max'))

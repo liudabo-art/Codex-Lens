@@ -16,7 +16,7 @@ class JobTests(unittest.TestCase):
         FakeClient.calls=[]; FakeClient.interrupt=None
         self.service=Service(self.store,client_factory=FakeClient)
         self.addCleanup(self.service.stop)
-        self.alias=self.service.configure('https://relay.example/v1','key','gpt-test')
+        self.alias=self.service.configure('https://relay.example/v1','key','gpt-5.6-sol')
 
     def wait_idle(self):
         deadline=time.monotonic()+4

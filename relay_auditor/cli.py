@@ -13,6 +13,7 @@ from .runtime import data_directory
 from .core import Auditor
 from .protocol import OFFICIAL_ENDPOINTS,REASONING_EFFORTS
 from .planning import EXAM_MODE, MODES
+from .exam_registry import exam_suite_versions
 
 
 class Parser(argparse.ArgumentParser):
@@ -21,17 +22,23 @@ class Parser(argparse.ArgumentParser):
         raise ValueError('invalid_arguments')
 
 
+def _check_exam_selection(args,plan):
+    if (args.family is not None and args.family!=plan['model_family']
+            or args.suite is not None and args.suite!=plan['suite_version']):
+        raise ValueError('exam_changed')
+
+
 def main(argv=None):
     parser = Parser(description='Experimental relay model auditor; official login is never probed.')
     parser.add_argument('command', nargs='?', default='serve',
                         choices=('serve','check','baseline','audit','capability','history','quality','quality-audit','context','reasoning','assessment','capability-exam',
-                                 'support','profiles','suites','estimate','demo','calibration-simulate','calibration-init','calibration-collect','calibration-report'))
+                                 'support','profiles','suites','estimate','demo','calibration-simulate','calibration-plan','calibration-init','calibration-collect','calibration-report'))
     parser.add_argument('--no-open', action='store_true', help='Do not open a browser automatically')
     parser.add_argument('--samples', type=int, help='Samples per probe / capability pairs')
     parser.add_argument('--seed',type=int,help='Replayable synthetic suite seed, 0 <= seed < 2**31')
     parser.add_argument('--request-limit', type=int, help='Explicit daily request limit')
     parser.add_argument('--token-limit', type=int, help='Explicit daily estimated token budget')
-    parser.add_argument('--wire-api', choices=tuple(OFFICIAL_ENDPOINTS), default='responses')
+    parser.add_argument('--wire-api', choices=tuple(OFFICIAL_ENDPOINTS))
     parser.add_argument('--stream', action='store_true', help='Explicitly request streaming responses')
     parser.add_argument('--reasoning-effort',choices=REASONING_EFFORTS)
     parser.add_argument('--max-output-tokens', type=int, help='Output token cap, 128–16384; omitted preserves saved settings')
@@ -43,8 +50,8 @@ def main(argv=None):
     parser.add_argument('--primary-model'); parser.add_argument('--alternative-model')
     parser.add_argument('--trials',type=int,default=100); parser.add_argument('--study-id')
     parser.add_argument('--study-scope',choices=('primary','extended'),default='primary')
-    parser.add_argument('--suite', choices=('exam-v2', 'assessment-v4'), help='Freeze the exact evaluation suite')
-    parser.add_argument('--family', choices=('gpt', 'deepseek'), help='Select the independently studied model family')
+    parser.add_argument('--suite', choices=(*exam_suite_versions(), 'assessment-v4'), help='Freeze the exact evaluation suite')
+    parser.add_argument('--family', choices=('gpt', 'deepseek', 'claude', 'gemini'), help='Select the model family for the proposed study')
     parser.add_argument('--calibration-audit-index',type=int,default=1)
     parser.add_argument('--phase',choices=('pilot','validation'),default='pilot')
     parser.add_argument('--scenario',choices=('healthy','substitution','reasoning_changed','context_truncated','mixed_10','mixed_30','mixed_50'),default='healthy')
@@ -56,6 +63,9 @@ def main(argv=None):
             args = parser.parse_args(argv)
         except SystemExit as exit_code:
             return exit_code.code
+        args.wire_api_explicit = args.wire_api is not None
+        if args.wire_api is None:
+            args.wire_api = 'responses'
         if args.command == 'capability-exam' and args.confirm_exam and args.comparison is None:
             print('Choose --comparison relay_only or --comparison paired before confirming an exam.', file=sys.stderr)
             return 2
@@ -79,6 +89,10 @@ def main(argv=None):
                 if value is not None:
                     options[name] = value
             print(json.dumps(simulate(trials=args.trials, audit_index=args.calibration_audit_index, **options), allow_nan=False))
+            return 0
+        if args.command=='calibration-plan':
+            from .calibration_cli import command
+            print(json.dumps(command(args),allow_nan=False))
             return 0
         if args.command.startswith('calibration-'):
             from .calibration_cli import command
@@ -130,6 +144,8 @@ def main(argv=None):
                                     reference_key=reference or None,reference_model=reference_model or None,save_credentials=args.save_key)
         if args.command=='estimate':
             plan = service.estimate(alias, args.mode, args.samples, comparison=args.comparison)
+            if args.mode == EXAM_MODE:
+                _check_exam_selection(args,plan)
             plan.pop('exam_plan_id', None)
             print(json.dumps(plan))
             return 0
@@ -137,6 +153,7 @@ def main(argv=None):
             if args.seed is not None:
                 raise ValueError('invalid_seed')
             plan = service.estimate(alias, EXAM_MODE, args.samples, comparison=args.comparison)
+            _check_exam_selection(args,plan)
             plan_id = plan.pop('exam_plan_id', None)
             print(json.dumps(plan), file=sys.stderr, flush=True)
             if not args.confirm_exam or plan['status'] != 'ok':
