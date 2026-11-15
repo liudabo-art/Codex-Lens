@@ -98,6 +98,8 @@ Dedicated relay keys and synthetic probes go only to the selected HTTPS relay. A
 
 ## Validation and roadmap
 
+[Developer handoff and next steps](../docs/DEVELOPER_HANDOFF.md) records the current milestone, code entry points, remaining evidence and acceptance gates. [Work log](../WORKLOG.md) records dated changes, checks and publication outcomes.
+
 ```powershell
 python -B -m unittest discover -s tests -v
 node tests/test_dashboard.cjs

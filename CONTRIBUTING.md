@@ -2,6 +2,8 @@
 
 Codex Lens 在此独立开发。修改检测、界面、协议或报告时，可在个人开发分支提交 PR。请说明改动覆盖的模型家族、协议和证据范围，并附可复现的合成用例。
 
+接手现有工作先读[开发交接与当前进度](docs/DEVELOPER_HANDOFF.md)，再核对 [WORKLOG](WORKLOG.md)、[验证记录](docs/VERIFICATION.md)和[开发路线](docs/DEVELOPMENT_PLAN.md)。每完成一个可验收单元，同步实际结果、限制与下一步，不把计划写成完成记录。
+
 ## 本地验证
 
 在仓库根目录执行以下命令。核心只需 Python 3.11+ 标准库。前端检查需 Node.js。桌面与原生打包依赖见[构建说明](docs/RELEASING.md)。

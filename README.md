@@ -46,6 +46,7 @@ Windows 源码桌面端可按[安装指南](docs/INSTALLATION.md)准备隔离环
 - [离线图文操作手册](docs/USER_MANUAL.md) · [考试规则与预算](docs/METHODS.md#capability-exam--能力考试)
 - [技术与数学原理](Technical-Documentation-Principles-of-Mathematics-Transfer-Station-Inspection.md) · [方法与校准](docs/METHODS.md)
 - [贡献指南](CONTRIBUTING.md) · [开发路线](docs/DEVELOPMENT_PLAN.md) · [文件指南](FILE_GUIDE.md) · [变更记录](CHANGELOG.md) · [验证记录](docs/VERIFICATION.md)
+- [开发者交接与下一步](docs/DEVELOPER_HANDOFF.md) · [工作进度记录](WORKLOG.md)
 - [CLI、Python 与接入契约](docs/EXTENDING.md) · [安全与隐私](SECURITY.md) · [MIT 许可证](LICENSE)
 
 ## 与 Token 监视器的关系

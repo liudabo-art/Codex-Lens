@@ -98,6 +98,8 @@ CLI 默认使用仓库中被忽略的 `.relay-data/`。同一平台的源码桌�
 
 ## 验证与后续门槛
 
+[开发者交接与下一步](../docs/DEVELOPER_HANDOFF.md)记录当前阶段、代码入口、待补证据与验收门槛；[工作记录](../WORKLOG.md)按日期保存实际改动、检查及发布结果。
+
 ```powershell
 python -B -m unittest discover -s tests -v
 node tests/test_dashboard.cjs

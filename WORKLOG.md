@@ -1,5 +1,14 @@
 # 工作记录 / Work log
 
+## 2026-11-15 · 开发交接与 0.3.0 远端交付
+
+- 按用户补充要求新增 [开发者交接](docs/DEVELOPER_HANDOFF.md)，说明完成阶段、代码入口、下一任务、验收门槛和持续记录格式。根目录及双语 README、贡献与文件指南加入入口，源码允许清单纳入交接文档。
+- 源码提交 [`5038acb`](https://github.com/liudabo-art/Codex-Lens/commit/5038acb62bb1137b5a99c0d48171baacd8193030) 已同步到本人仓库的 `main` 与 `codex/release-v0.3.0`，作者 `liudabo-art`。常规 Git 传输多次连接重置后改用固定仓库 Git 数据接口，逐 blob／tree 校验与已审阅源码完全一致；原有公开历史保留。
+- [五目标构建与发布](https://github.com/liudabo-art/Codex-Lens/actions/runs/43676237351)的 Windows x64、macOS x64／arm64、Linux x64／arm64 及发布任务全部成功；[版本分支合成检查](https://github.com/liudabo-art/Codex-Lens/actions/runs/43676237353)亦通过。[v0.3.0 实验版](https://github.com/liudabo-art/Codex-Lens/releases/tag/v0.3.0)于北京时间 2026-11-15 12:43:39 公开，含 8 个安装／便携包及 `SHA256SUMS.txt`。已核对标签和版本分支指向 `5038acb`、9 个资产均完整上传，并下载清单确认 8 个 SHA-256 与 GitHub 资产摘要一致。
+- Windows CI 耗时异常时，单独中止重复的主分支合成检查以取得日志，随后重新运行中止的任务，未取消原生构建。日志显示检查持续向后推进，已完成项通过；独立复核确认完整考试矩阵含 3,600 次合成请求及 7,256 次事务提交，单项本机 23.9 秒、云端约 159 秒。保留真实记账与质量断言，没有删减用例或降低题量以加速发布。
+- M0／M1／M2 软件与 M3 证据工具已交付；真实先导、跨日期验证和完整原生 GUI 人工验收仍待完成。下一阶段继续优先 OpenAI／Anthropic，取得官方访问及明确预算后按冻结方案采样。
+- 发布后的交接和验证说明作为独立文档提交同步到主分支；安装包来源固定为上述标签提交，不重打标签或替换旧版资产。文档改动核对链接、源码清单及隐私边界，不冒称再次完成模型校准。
+
 ## 2026-11-14 · 0.3.0 发布准备
 
 - 用户明确授权同步源码、全部受影响说明和 Release 至自己的 `liudabo-art/Codex-Lens`。已核对当前账号、公开仓库写入权限和主分支基线；Git 作者使用已配置的 `liudabo-art`。不修改朋友的仓库或 Token 监视器主项目。

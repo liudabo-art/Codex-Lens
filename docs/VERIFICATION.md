@@ -1,5 +1,14 @@
 # 验证记录 / Verification
 
+## 2026-11-15 0.3.0 发布与开发交接
+
+- 安装包源码为 [`5038acb62bb1137b5a99c0d48171baacd8193030`](https://github.com/liudabo-art/Codex-Lens/commit/5038acb62bb1137b5a99c0d48171baacd8193030)，作者 `liudabo-art`。经固定仓库 Git 数据接口上传的全部 blob／tree 与本机已审阅提交完全一致；元数据序列化不影响代码。`v0.3.0` 标签和版本分支均核对指向该提交，旧版标签保留。
+- [原生构建与发布](https://github.com/liudabo-art/Codex-Lens/actions/runs/43676237351)六个任务全部成功：Windows x64、macOS x64／arm64、Linux x64／arm64 及 publish。每目标执行 Python／前端合成回归、包／worker／资源冒烟与校验；Windows 安装卸载、macOS 挂载、Linux DEB 解包步骤通过。[版本分支 Synthetic checks](https://github.com/liudabo-art/Codex-Lens/actions/runs/43676237353)通过。
+- [v0.3.0](https://github.com/liudabo-art/Codex-Lens/releases/tag/v0.3.0)于 **2026-11-15 12:43:39（Asia/Shanghai）**公开为实验性预发布。核对 8 个目标安装／便携包和 `SHA256SUMS.txt` 的名称、非零大小、上传状态及标签来源；下载清单的 8 个 SHA-256 均与 GitHub 资产摘要一致。无需把源代码归档当作安装器。
+- Windows 云端检查慢于本机，诊断时仅中止一组重复的主分支 Synthetic checks 并重跑中止任务，未降低任何断言。取得的日志持续推进、已完成项通过。独立计数确认单个四家矩阵产生 3,600 次合成请求和 7,256 次事务提交，本机 23.9 秒、云端约 159 秒；不是模型网络访问或少做题。
+- [开发交接](DEVELOPER_HANDOFF.md)记录软件／真实校准的独立状态、关键代码入口、复现命令、兼容与冻结规则，以及下一阶段验收。文档后续提交与安装包源码分别记录；本次没有改变检测引擎或题集。
+- 全部模型结果仍为实验性，无付费采样或真实精度达标声明。Windows 未签名，macOS 临时签名未公证，完整原生 GUI 人工验收仍开放。
+
 ## 2026-11-14 0.3.0 发布前核验
 
 - Windows／Python 3.13 隔离环境在最终 Claude 题面边界修正后运行 `python -B -m unittest discover -s tests -v`：**385/385 通过，200.526 秒，无跳过**。`node tests/test_dashboard.cjs` **25/25 通过**；`python -I -S -B run.py calibration-simulate --trials 20 --seed 42` 离线模拟通过。

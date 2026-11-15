@@ -28,6 +28,8 @@ python -B build_tools/build.py
 
 源码开源与原生安装包发布分别验收。可查看 [已完成的验证](VERIFICATION.md) 和 [当前变更](../CHANGELOG.md)。
 
+发布完成后把提交、Actions／Release 链接、资产核验与实际限制同步到 [工作记录](../WORKLOG.md)、[验证记录](VERIFICATION.md) 和 [开发交接](DEVELOPER_HANDOFF.md)。安装包的标签提交与后续仅更新说明的提交分别记录，便于复现二进制来源。
+
 1. 用 `python -B build_tools/stage_source.py` 导出明确允许的源码、合成测试、文档和静态资源。审阅源码包和文件清单，确保只有公开内容。
 2. 确认 GitHub 身份与目标 `owner/repository` 后，在批准的仓库运行 [原生构建流程](../.github/workflows/build-native.yml)。手动触发只生成候选产物。
 3. 五个原生任务分别构建 Windows x64、macOS x64/arm64 与 Linux x64/arm64，并做固定 worker、资源与包冒烟；工作流另做 Windows 安装/卸载、macOS 挂载和 Linux 解包检查。逐项核对结果、文件清单及包哈希，记录实际签名、公证和实机验证状态。完整原生 GUI 验收另行记录，不能由这些检查替代。

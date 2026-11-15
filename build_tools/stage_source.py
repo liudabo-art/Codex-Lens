@@ -14,7 +14,7 @@ FILES = (
     'requirements-build.txt', 'requirements-desktop.txt',
     'Technical-Documentation-Principles-of-Mathematics-Transfer-Station-Inspection.md',
     'README/README.md', 'README/README-Simplified_Chinese.md',
-    'docs/DEVELOPMENT_PLAN.md', 'docs/EXTENDING.md', 'docs/METHODS.md',
+    'docs/DEVELOPMENT_PLAN.md', 'docs/DEVELOPER_HANDOFF.md', 'docs/EXTENDING.md', 'docs/METHODS.md',
     'docs/INSTALLATION.md', 'docs/RELEASING.md', 'docs/RELEASE_NOTES.md', 'docs/VERIFICATION.md',
     'docs/USER_MANUAL.md', 'docs/CALIBRATION_PILOT_PLAN.md', 'docs/FOUR_FAMILY_DETECTION.md',
     'tests/legacy_exam_papers.json', 'tests/native_exam_papers.json', 'relay_auditor/web/manual/content.json',

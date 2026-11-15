@@ -8,6 +8,7 @@
 | build_tools/ / requirements-*.txt / assets/ | 原生安装候选、固定依赖、应用图标、源码审阅包与合成冒烟 |
 | VERSION / .github/workflows/ | 独立安装包版本、推送时合成检查；五目标原生构建及校验通过后发布实验版 |
 | WORKLOG.md / docs/VERIFICATION.md | 完成的工作、实际验证及未验证范围 |
+| docs/DEVELOPER_HANDOFF.md | 接手入口：当前阶段、源码基线、关键约束、复现命令与下一步验收 |
 | exam_registry.py / native_exam_generators.py | 四家不可变试卷规格、Claude/Gemini 独立生成器；exam.py 统一出卷/交卷 |
 | model_capabilities.py / docs/FOUR_FAMILY_DETECTION.md | 确切型号/协议参数支持表、四家优先级与独立校准边界 |
 | tests/legacy_exam_papers.json / native_exam_papers.json / test_native_exam_engine.py / test_gemini_exam_engine.py | 12 份旧卷摘要、新原生试卷独立答案与边界回归 |
